@@ -601,6 +601,9 @@ export class APISelect {
     this.updatePathValues(target.name);
     this.updateQueryUrl();
 
+    // Remove the existing select option, as the parent changed, and the current selected options is not relevant to the new parent
+    this.resetOptions()
+
     // Load new data.
     Promise.all([this.loadData()]);
   }
