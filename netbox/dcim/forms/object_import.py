@@ -1,6 +1,7 @@
 from django import forms
+from django.utils.translation import gettext as _
 
-from dcim.choices import InterfaceTypeChoices, PortTypeChoices
+from dcim.choices import InterfacePoEModeChoices, InterfacePoETypeChoices, InterfaceTypeChoices, PortTypeChoices
 from dcim.models import *
 from utilities.forms import BootstrapMixin
 
@@ -8,41 +9,14 @@ __all__ = (
     'ConsolePortTemplateImportForm',
     'ConsoleServerPortTemplateImportForm',
     'DeviceBayTemplateImportForm',
-    'DeviceTypeImportForm',
     'FrontPortTemplateImportForm',
     'InterfaceTemplateImportForm',
     'InventoryItemTemplateImportForm',
     'ModuleBayTemplateImportForm',
-    'ModuleTypeImportForm',
     'PowerOutletTemplateImportForm',
     'PowerPortTemplateImportForm',
     'RearPortTemplateImportForm',
 )
-
-
-class DeviceTypeImportForm(BootstrapMixin, forms.ModelForm):
-    manufacturer = forms.ModelChoiceField(
-        queryset=Manufacturer.objects.all(),
-        to_field_name='name'
-    )
-
-    class Meta:
-        model = DeviceType
-        fields = [
-            'manufacturer', 'model', 'slug', 'part_number', 'u_height', 'is_full_depth', 'subdevice_role', 'airflow',
-            'comments',
-        ]
-
-
-class ModuleTypeImportForm(BootstrapMixin, forms.ModelForm):
-    manufacturer = forms.ModelChoiceField(
-        queryset=Manufacturer.objects.all(),
-        to_field_name='name'
-    )
-
-    class Meta:
-        model = ModuleType
-        fields = ['manufacturer', 'model', 'part_number', 'comments']
 
 
 #
@@ -112,11 +86,21 @@ class InterfaceTemplateImportForm(ComponentTemplateImportForm):
     type = forms.ChoiceField(
         choices=InterfaceTypeChoices.CHOICES
     )
+    poe_mode = forms.ChoiceField(
+        choices=InterfacePoEModeChoices,
+        required=False,
+        label=_('PoE mode')
+    )
+    poe_type = forms.ChoiceField(
+        choices=InterfacePoETypeChoices,
+        required=False,
+        label=_('PoE type')
+    )
 
     class Meta:
         model = InterfaceTemplate
         fields = [
-            'device_type', 'module_type', 'name', 'label', 'type', 'mgmt_only', 'description',
+            'device_type', 'module_type', 'name', 'label', 'type', 'mgmt_only', 'description', 'poe_mode', 'poe_type',
         ]
 
 
@@ -146,7 +130,7 @@ class FrontPortTemplateImportForm(ComponentTemplateImportForm):
     class Meta:
         model = FrontPortTemplate
         fields = [
-            'device_type', 'module_type', 'name', 'type', 'rear_port', 'rear_port_position', 'label', 'description',
+            'device_type', 'module_type', 'name', 'type', 'color', 'rear_port', 'rear_port_position', 'label', 'description',
         ]
 
 
@@ -158,7 +142,7 @@ class RearPortTemplateImportForm(ComponentTemplateImportForm):
     class Meta:
         model = RearPortTemplate
         fields = [
-            'device_type', 'module_type', 'name', 'type', 'positions', 'label', 'description',
+            'device_type', 'module_type', 'name', 'type', 'color', 'positions', 'label', 'description',
         ]
 
 

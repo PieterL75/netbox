@@ -1,17 +1,17 @@
-from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.urls import reverse
+from django.utils.translation import gettext as _
 
 from dcim.models import Interface
 from ipam.choices import *
 from ipam.constants import *
 from ipam.querysets import VLANQuerySet
-from netbox.models import OrganizationalModel, NetBoxModel
+from netbox.models import OrganizationalModel, PrimaryModel
 from virtualization.models import VMInterface
-
 
 __all__ = (
     'VLAN',
@@ -51,7 +51,7 @@ class VLANGroup(OrganizationalModel):
             MinValueValidator(VLAN_VID_MIN),
             MaxValueValidator(VLAN_VID_MAX)
         ),
-        help_text='Lowest permissible ID of a child VLAN'
+        help_text=_('Lowest permissible ID of a child VLAN')
     )
     max_vid = models.PositiveSmallIntegerField(
         verbose_name='Maximum VLAN ID',
@@ -60,24 +60,23 @@ class VLANGroup(OrganizationalModel):
             MinValueValidator(VLAN_VID_MIN),
             MaxValueValidator(VLAN_VID_MAX)
         ),
-        help_text='Highest permissible ID of a child VLAN'
-    )
-    description = models.CharField(
-        max_length=200,
-        blank=True
+        help_text=_('Highest permissible ID of a child VLAN')
     )
 
     class Meta:
         ordering = ('name', 'pk')  # Name may be non-unique
-        unique_together = [
-            ['scope_type', 'scope_id', 'name'],
-            ['scope_type', 'scope_id', 'slug'],
-        ]
+        constraints = (
+            models.UniqueConstraint(
+                fields=('scope_type', 'scope_id', 'name'),
+                name='%(app_label)s_%(class)s_unique_scope_name'
+            ),
+            models.UniqueConstraint(
+                fields=('scope_type', 'scope_id', 'slug'),
+                name='%(app_label)s_%(class)s_unique_scope_slug'
+            ),
+        )
         verbose_name = 'VLAN group'
         verbose_name_plural = 'VLAN groups'
-
-    def __str__(self):
-        return self.name
 
     def get_absolute_url(self):
         return reverse('ipam:vlangroup', args=[self.pk])
@@ -116,7 +115,7 @@ class VLANGroup(OrganizationalModel):
         return None
 
 
-class VLAN(NetBoxModel):
+class VLAN(PrimaryModel):
     """
     A VLAN is a distinct layer two forwarding domain identified by a 12-bit integer (1-4094). Each VLAN must be assigned
     to a Site, however VLAN IDs need not be unique within a Site. A VLAN may optionally be assigned to a VLANGroup,
@@ -168,9 +167,12 @@ class VLAN(NetBoxModel):
         blank=True,
         null=True
     )
-    description = models.CharField(
-        max_length=200,
-        blank=True
+
+    l2vpn_terminations = GenericRelation(
+        to='ipam.L2VPNTermination',
+        content_type_field='assigned_object_type',
+        object_id_field='assigned_object_id',
+        related_query_name='vlan'
     )
 
     objects = VLANQuerySet.as_manager()
@@ -181,10 +183,16 @@ class VLAN(NetBoxModel):
 
     class Meta:
         ordering = ('site', 'group', 'vid', 'pk')  # (site, group, vid) may be non-unique
-        unique_together = [
-            ['group', 'vid'],
-            ['group', 'name'],
-        ]
+        constraints = (
+            models.UniqueConstraint(
+                fields=('group', 'vid'),
+                name='%(app_label)s_%(class)s_unique_group_vid'
+            ),
+            models.UniqueConstraint(
+                fields=('group', 'name'),
+                name='%(app_label)s_%(class)s_unique_group_name'
+            ),
+        )
         verbose_name = 'VLAN'
         verbose_name_plural = 'VLANs'
 
@@ -227,3 +235,7 @@ class VLAN(NetBoxModel):
             Q(untagged_vlan_id=self.pk) |
             Q(tagged_vlans=self.pk)
         ).distinct()
+
+    @property
+    def l2vpn_termination(self):
+        return self.l2vpn_terminations.first()

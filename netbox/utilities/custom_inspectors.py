@@ -1,4 +1,3 @@
-from django.contrib.postgres.fields import JSONField
 from drf_yasg import openapi
 from drf_yasg.inspectors import FieldInspector, NotHandled, PaginatorInspector, SwaggerAutoSchema
 from drf_yasg.utils import get_serializer_ref_name
@@ -6,7 +5,8 @@ from rest_framework.fields import ChoiceField
 from rest_framework.relations import ManyRelatedField
 
 from extras.api.customfields import CustomFieldsDataField
-from netbox.api import ChoiceField, SerializedPKRelatedField, WritableNestedSerializer
+from netbox.api.fields import ChoiceField, SerializedPKRelatedField
+from netbox.api.serializers import WritableNestedSerializer
 
 
 class NetBoxSwaggerAutoSchema(SwaggerAutoSchema):
@@ -27,14 +27,13 @@ class NetBoxSwaggerAutoSchema(SwaggerAutoSchema):
     def get_request_serializer(self):
         serializer = super().get_request_serializer()
 
-        if serializer is not None and self.method in self.implicit_body_methods:
-            writable_class = self.get_writable_class(serializer)
-            if writable_class is not None:
+        if serializer is not None and not isinstance(serializer, openapi.Schema) and self.method in self.implicit_body_methods:
+            if writable_class := self.get_writable_class(serializer):
                 if hasattr(serializer, 'child'):
                     child_serializer = self.get_writable_class(serializer.child)
-                    serializer = writable_class(child=child_serializer)
+                    serializer = writable_class(context=serializer.context, child=child_serializer)
                 else:
-                    serializer = writable_class()
+                    serializer = writable_class(context=serializer.context)
         return serializer
 
     def get_writable_class(self, serializer):
@@ -128,15 +127,6 @@ class CustomFieldsDataFieldInspector(FieldInspector):
             return SwaggerType(type=openapi.TYPE_OBJECT)
 
         return NotHandled
-
-
-class JSONFieldInspector(FieldInspector):
-    """Required because by default, Swagger sees a JSONField as a string and not dict
-    """
-    def process_result(self, result, method_name, obj, **kwargs):
-        if isinstance(result, openapi.Schema) and isinstance(obj, JSONField):
-            result.type = 'dict'
-        return result
 
 
 class NullablePaginatorInspector(PaginatorInspector):

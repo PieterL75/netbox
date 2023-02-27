@@ -1,6 +1,8 @@
+from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 from netaddr import IPNetwork
 
+from dcim.choices import InterfaceTypeChoices
 from dcim.models import Device, DeviceRole, DeviceType, Interface, Location, Manufacturer, Rack, Region, Site, SiteGroup
 from ipam.choices import *
 from ipam.filtersets import *
@@ -678,6 +680,14 @@ class IPRangeTestCase(TestCase, ChangeLoggedFilterSetTests):
         params = {'family': '6'}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)
 
+    def test_start_address(self):
+        params = {'start_address': ['10.0.1.100', '10.0.2.100']}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_end_address(self):
+        params = {'end_address': ['10.0.1.199', '10.0.2.199']}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
     def test_contains(self):
         params = {'contains': '10.0.1.150/24'}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
@@ -823,10 +833,8 @@ class IPAddressTestCase(TestCase, ChangeLoggedFilterSetTests):
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
     def test_parent(self):
-        params = {'parent': '10.0.0.0/24'}
-        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 6)
-        params = {'parent': '2001:db8::/64'}
-        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 6)
+        params = {'parent': ['10.0.0.0/30', '2001:db8::/126']}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 8)
 
     def test_filter_address(self):
         # Check IPv4 and IPv6, with and without a mask
@@ -932,7 +940,7 @@ class FHRPGroupTestCase(TestCase, ChangeLoggedFilterSetTests):
 
         fhrp_groups = (
             FHRPGroup(protocol=FHRPGroupProtocolChoices.PROTOCOL_VRRP2, group_id=10, auth_type=FHRPGroupAuthTypeChoices.AUTHENTICATION_PLAINTEXT, auth_key='foo123'),
-            FHRPGroup(protocol=FHRPGroupProtocolChoices.PROTOCOL_VRRP3, group_id=20, auth_type=FHRPGroupAuthTypeChoices.AUTHENTICATION_MD5, auth_key='bar456'),
+            FHRPGroup(protocol=FHRPGroupProtocolChoices.PROTOCOL_VRRP3, group_id=20, auth_type=FHRPGroupAuthTypeChoices.AUTHENTICATION_MD5, auth_key='bar456', name='bar123'),
             FHRPGroup(protocol=FHRPGroupProtocolChoices.PROTOCOL_HSRP, group_id=30),
         )
         FHRPGroup.objects.bulk_create(fhrp_groups)
@@ -955,6 +963,10 @@ class FHRPGroupTestCase(TestCase, ChangeLoggedFilterSetTests):
     def test_auth_key(self):
         params = {'auth_key': ['foo123', 'bar456']}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_name(self):
+        params = {'name': ['bar123', ]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
 
     def test_related_ip(self):
         # Create some regular IPs to query for related IPs
@@ -1416,6 +1428,19 @@ class ServiceTestCase(TestCase, ChangeLoggedFilterSetTests):
         )
         Device.objects.bulk_create(devices)
 
+        interface = Interface.objects.create(
+            device=devices[0],
+            name='eth0',
+            type=InterfaceTypeChoices.TYPE_VIRTUAL
+        )
+        interface_ct = ContentType.objects.get_for_model(Interface).pk
+        ip_addresses = (
+            IPAddress(address='192.0.2.1/24', assigned_object_type_id=interface_ct, assigned_object_id=interface.pk),
+            IPAddress(address='192.0.2.2/24', assigned_object_type_id=interface_ct, assigned_object_id=interface.pk),
+            IPAddress(address='192.0.2.3/24', assigned_object_type_id=interface_ct, assigned_object_id=interface.pk),
+        )
+        IPAddress.objects.bulk_create(ip_addresses)
+
         clustertype = ClusterType.objects.create(name='Cluster Type 1', slug='cluster-type-1')
         cluster = Cluster.objects.create(type=clustertype, name='Cluster 1')
 
@@ -1435,6 +1460,9 @@ class ServiceTestCase(TestCase, ChangeLoggedFilterSetTests):
             Service(virtual_machine=virtual_machines[2], name='Service 6', protocol=ServiceProtocolChoices.PROTOCOL_UDP, ports=[2003]),
         )
         Service.objects.bulk_create(services)
+        services[0].ipaddresses.add(ip_addresses[0])
+        services[1].ipaddresses.add(ip_addresses[1])
+        services[2].ipaddresses.add(ip_addresses[2])
 
     def test_name(self):
         params = {'name': ['Service 1', 'Service 2']}
@@ -1465,3 +1493,170 @@ class ServiceTestCase(TestCase, ChangeLoggedFilterSetTests):
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
         params = {'virtual_machine': [vms[0].name, vms[1].name]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_ipaddress(self):
+        ips = IPAddress.objects.all()[:2]
+        params = {'ipaddress_id': [ips[0].pk, ips[1].pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+        params = {'ipaddress': [str(ips[0].address), str(ips[1].address)]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+
+class L2VPNTestCase(TestCase, ChangeLoggedFilterSetTests):
+    queryset = L2VPN.objects.all()
+    filterset = L2VPNFilterSet
+
+    @classmethod
+    def setUpTestData(cls):
+
+        route_targets = (
+            RouteTarget(name='1:1'),
+            RouteTarget(name='1:2'),
+            RouteTarget(name='1:3'),
+            RouteTarget(name='2:1'),
+            RouteTarget(name='2:2'),
+            RouteTarget(name='2:3'),
+        )
+        RouteTarget.objects.bulk_create(route_targets)
+
+        l2vpns = (
+            L2VPN(name='L2VPN 1', slug='l2vpn-1', type=L2VPNTypeChoices.TYPE_VXLAN, identifier=65001),
+            L2VPN(name='L2VPN 2', slug='l2vpn-2', type=L2VPNTypeChoices.TYPE_VPWS, identifier=65002),
+            L2VPN(name='L2VPN 3', slug='l2vpn-3', type=L2VPNTypeChoices.TYPE_VPLS),
+        )
+        L2VPN.objects.bulk_create(l2vpns)
+        l2vpns[0].import_targets.add(route_targets[0])
+        l2vpns[1].import_targets.add(route_targets[1])
+        l2vpns[2].import_targets.add(route_targets[2])
+        l2vpns[0].export_targets.add(route_targets[3])
+        l2vpns[1].export_targets.add(route_targets[4])
+        l2vpns[2].export_targets.add(route_targets[5])
+
+    def test_name(self):
+        params = {'name': ['L2VPN 1', 'L2VPN 2']}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_slug(self):
+        params = {'slug': ['l2vpn-1', 'l2vpn-2']}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_identifier(self):
+        params = {'identifier': ['65001', '65002']}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_type(self):
+        params = {'type': [L2VPNTypeChoices.TYPE_VXLAN, L2VPNTypeChoices.TYPE_VPWS]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_import_targets(self):
+        route_targets = RouteTarget.objects.filter(name__in=['1:1', '1:2'])
+        params = {'import_target_id': [route_targets[0].pk, route_targets[1].pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+        params = {'import_target': [route_targets[0].name, route_targets[1].name]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_export_targets(self):
+        route_targets = RouteTarget.objects.filter(name__in=['2:1', '2:2'])
+        params = {'export_target_id': [route_targets[0].pk, route_targets[1].pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+        params = {'export_target': [route_targets[0].name, route_targets[1].name]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+
+class L2VPNTerminationTestCase(TestCase, ChangeLoggedFilterSetTests):
+    queryset = L2VPNTermination.objects.all()
+    filterset = L2VPNTerminationFilterSet
+
+    @classmethod
+    def setUpTestData(cls):
+        device = create_test_device('Device 1')
+        interfaces = (
+            Interface(name='Interface 1', device=device, type=InterfaceTypeChoices.TYPE_1GE_FIXED),
+            Interface(name='Interface 2', device=device, type=InterfaceTypeChoices.TYPE_1GE_FIXED),
+            Interface(name='Interface 3', device=device, type=InterfaceTypeChoices.TYPE_1GE_FIXED),
+        )
+        Interface.objects.bulk_create(interfaces)
+
+        vm = create_test_virtualmachine('Virtual Machine 1')
+        vminterfaces = (
+            VMInterface(name='Interface 1', virtual_machine=vm),
+            VMInterface(name='Interface 2', virtual_machine=vm),
+            VMInterface(name='Interface 3', virtual_machine=vm),
+        )
+        VMInterface.objects.bulk_create(vminterfaces)
+
+        vlans = (
+            VLAN(name='VLAN 1', vid=101),
+            VLAN(name='VLAN 2', vid=102),
+            VLAN(name='VLAN 3', vid=103),
+        )
+        VLAN.objects.bulk_create(vlans)
+
+        l2vpns = (
+            L2VPN(name='L2VPN 1', slug='l2vpn-1', type='vxlan', identifier=65001),
+            L2VPN(name='L2VPN 2', slug='l2vpn-2', type='vpws', identifier=65002),
+            L2VPN(name='L2VPN 3', slug='l2vpn-3', type='vpls'),  # No RD,
+        )
+        L2VPN.objects.bulk_create(l2vpns)
+
+        l2vpnterminations = (
+            L2VPNTermination(l2vpn=l2vpns[0], assigned_object=vlans[0]),
+            L2VPNTermination(l2vpn=l2vpns[1], assigned_object=vlans[1]),
+            L2VPNTermination(l2vpn=l2vpns[2], assigned_object=vlans[2]),
+            L2VPNTermination(l2vpn=l2vpns[0], assigned_object=interfaces[0]),
+            L2VPNTermination(l2vpn=l2vpns[1], assigned_object=interfaces[1]),
+            L2VPNTermination(l2vpn=l2vpns[2], assigned_object=interfaces[2]),
+            L2VPNTermination(l2vpn=l2vpns[0], assigned_object=vminterfaces[0]),
+            L2VPNTermination(l2vpn=l2vpns[1], assigned_object=vminterfaces[1]),
+            L2VPNTermination(l2vpn=l2vpns[2], assigned_object=vminterfaces[2]),
+        )
+        L2VPNTermination.objects.bulk_create(l2vpnterminations)
+
+    def test_l2vpn(self):
+        l2vpns = L2VPN.objects.all()[:2]
+        params = {'l2vpn_id': [l2vpns[0].pk, l2vpns[1].pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 6)
+        params = {'l2vpn': [l2vpns[0].slug, l2vpns[1].slug]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 6)
+
+    def test_content_type(self):
+        params = {'assigned_object_type_id': ContentType.objects.get(model='vlan').pk}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
+
+    def test_interface(self):
+        interfaces = Interface.objects.all()[:2]
+        params = {'interface_id': [interfaces[0].pk, interfaces[1].pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_vminterface(self):
+        vminterfaces = VMInterface.objects.all()[:2]
+        params = {'vminterface_id': [vminterfaces[0].pk, vminterfaces[1].pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_vlan(self):
+        vlans = VLAN.objects.all()[:2]
+        params = {'vlan_id': [vlans[0].pk, vlans[1].pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+        params = {'vlan': ['VLAN 1', 'VLAN 2']}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_site(self):
+        site = Site.objects.all().first()
+        params = {'site_id': [site.pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
+        params = {'site': ['site-1']}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
+
+    def test_device(self):
+        device = Device.objects.all().first()
+        params = {'device_id': [device.pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
+        params = {'device': ['Device 1']}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
+
+    def test_virtual_machine(self):
+        virtual_machine = VirtualMachine.objects.all().first()
+        params = {'virtual_machine_id': [virtual_machine.pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
+        params = {'virtual_machine': ['Virtual Machine 1']}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)

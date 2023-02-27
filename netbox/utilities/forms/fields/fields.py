@@ -3,6 +3,8 @@ import json
 from django import forms
 from django.db.models import Count
 from django.forms.fields import JSONField as _JSONField, InvalidJSONInput
+from django.templatetags.static import static
+from django.utils.translation import gettext as _
 from netaddr import AddrFormatError, EUI
 
 from utilities.forms import widgets
@@ -26,10 +28,9 @@ class CommentField(forms.CharField):
     A textarea with support for Markdown rendering. Exists mostly just to add a standard `help_text`.
     """
     widget = forms.Textarea
-    # TODO: Port Markdown cheat sheet to internal documentation
-    help_text = """
+    help_text = f"""
         <i class="mdi mdi-information-outline"></i>
-        <a href="https://github.com/adam-p/markdown-here/wiki/Markdown-Cheatsheet" target="_blank" tabindex="-1">
+        <a href="{static('docs/reference/markdown/')}" target="_blank" tabindex="-1">
         Markdown</a> syntax is supported
     """
 
@@ -45,7 +46,7 @@ class SlugField(forms.SlugField):
         slug_source: Name of the form field from which the slug value will be derived
     """
     widget = widgets.SlugWidget
-    help_text = "URL-friendly unique shorthand"
+    help_text = _("URL-friendly unique shorthand")
 
     def __init__(self, *, slug_source='name', help_text=help_text, **kwargs):
         super().__init__(help_text=help_text, **kwargs)
@@ -97,8 +98,9 @@ class JSONField(_JSONField):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if not self.help_text:
-            self.help_text = 'Enter context data in <a href="https://json.org/">JSON</a> format.'
+            self.help_text = _('Enter context data in <a href="https://json.org/">JSON</a> format.')
             self.widget.attrs['placeholder'] = ''
+            self.widget.attrs['class'] = 'font-monospace'
 
     def prepare_value(self, value):
         if isinstance(value, InvalidJSONInput):

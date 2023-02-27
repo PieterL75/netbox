@@ -4,9 +4,9 @@ import logging
 import os
 import pkgutil
 import sys
-import traceback
 import threading
-from collections import OrderedDict
+import traceback
+from datetime import timedelta
 
 import yaml
 from django import forms
@@ -17,9 +17,11 @@ from django.utils.functional import classproperty
 
 from extras.api.serializers import ScriptOutputSerializer
 from extras.choices import JobResultStatusChoices, LogLevelChoices
+from extras.models import JobResult
+from extras.signals import clear_webhooks
 from ipam.formfields import IPAddressFormField, IPNetworkFormField
 from ipam.validators import MaxPrefixLengthValidator, MinPrefixLengthValidator, prefix_validator
-from utilities.exceptions import AbortTransaction
+from utilities.exceptions import AbortScript, AbortTransaction
 from utilities.forms import add_blank_choice, DynamicModelChoiceField, DynamicModelMultipleChoiceField
 from .context_managers import change_logging
 from .forms import ScriptForm
@@ -299,6 +301,10 @@ class BaseScript:
     def module(cls):
         return cls.__module__
 
+    @classmethod
+    def root_module(cls):
+        return cls.__module__.split(".")[0]
+
     @classproperty
     def job_timeout(self):
         return getattr(self.Meta, 'job_timeout', None)
@@ -306,9 +312,16 @@ class BaseScript:
     @classmethod
     def _get_vars(cls):
         vars = {}
-        for name, attr in cls.__dict__.items():
-            if name not in vars and issubclass(attr.__class__, ScriptVariable):
-                vars[name] = attr
+
+        # Iterate all base classes looking for ScriptVariables
+        for base_class in inspect.getmro(cls):
+            # When object is reached there's no reason to continue
+            if base_class is object:
+                break
+
+            for name, attr in base_class.__dict__.items():
+                if name not in vars and issubclass(attr.__class__, ScriptVariable):
+                    vars[name] = attr
 
         # Order variables according to field_order
         field_order = getattr(cls.Meta, 'field_order', None)
@@ -422,15 +435,13 @@ def is_variable(obj):
 def run_script(data, request, commit=True, *args, **kwargs):
     """
     A wrapper for calling Script.run(). This performs error handling and provides a hook for committing changes. It
-    exists outside of the Script class to ensure it cannot be overridden by a script author.
+    exists outside the Script class to ensure it cannot be overridden by a script author.
     """
     job_result = kwargs.pop('job_result')
+    job_result.start()
+
     module, script_name = job_result.name.split('.', 1)
-
     script = get_script(module, script_name)()
-
-    job_result.status = JobResultStatusChoices.STATUS_RUNNING
-    job_result.save()
 
     logger = logging.getLogger(f"netbox.scripts.{module}.{script_name}")
     logger.info(f"Running script (commit={commit})")
@@ -458,7 +469,15 @@ def run_script(data, request, commit=True, *args, **kwargs):
 
         except AbortTransaction:
             script.log_info("Database changes have been reverted automatically.")
-
+            clear_webhooks.send(request)
+        except AbortScript as e:
+            script.log_failure(
+                f"Script aborted with error: {e}"
+            )
+            script.log_info("Database changes have been reverted due to error.")
+            logger.error(f"Script aborted with error: {e}")
+            job_result.set_status(JobResultStatusChoices.STATUS_ERRORED)
+            clear_webhooks.send(request)
         except Exception as e:
             stacktrace = traceback.format_exc()
             script.log_failure(
@@ -467,7 +486,7 @@ def run_script(data, request, commit=True, *args, **kwargs):
             script.log_info("Database changes have been reverted due to error.")
             logger.error(f"Exception raised during script execution: {e}")
             job_result.set_status(JobResultStatusChoices.STATUS_ERRORED)
-
+            clear_webhooks.send(request)
         finally:
             job_result.data = ScriptOutputSerializer(script).data
             job_result.save()
@@ -482,32 +501,62 @@ def run_script(data, request, commit=True, *args, **kwargs):
     else:
         _run_script()
 
+    # Schedule the next job if an interval has been set
+    if job_result.interval:
+        new_scheduled_time = job_result.scheduled + timedelta(minutes=job_result.interval)
+        JobResult.enqueue_job(
+            run_script,
+            name=job_result.name,
+            obj_type=job_result.obj_type,
+            user=job_result.user,
+            schedule_at=new_scheduled_time,
+            interval=job_result.interval,
+            job_timeout=script.job_timeout,
+            data=data,
+            request=request,
+            commit=commit
+        )
+
 
 def get_scripts(use_names=False):
     """
     Return a dict of dicts mapping all scripts to their modules. Set use_names to True to use each module's human-
     defined name in place of the actual module name.
     """
-    scripts = OrderedDict()
-    # Iterate through all modules within the scripts path. These are the user-created files in which reports are
+    scripts = {}
+
+    # Get all modules within the scripts path. These are the user-created files in which scripts are
     # defined.
-    for importer, module_name, _ in pkgutil.iter_modules([settings.SCRIPTS_ROOT]):
-        # Use a lock as removing and loading modules is not thread safe
-        with lock:
-            # Remove cached module to ensure consistency with filesystem
-            if module_name in sys.modules:
+    modules = list(pkgutil.iter_modules([settings.SCRIPTS_ROOT]))
+    modules_bases = set([name.split(".")[0] for _, name, _ in modules])
+
+    # Deleting from sys.modules needs to done behind a lock to prevent race conditions where a module is
+    # removed from sys.modules while another thread is importing
+    with lock:
+        for module_name in list(sys.modules.keys()):
+            # Everything sharing a base module path with a module in the script folder is removed.
+            # We also remove all modules with a base module called "scripts". This allows modifying imported
+            # non-script modules without having to reload the RQ worker.
+            module_base = module_name.split(".")[0]
+            if module_base == "scripts" or module_base in modules_bases:
                 del sys.modules[module_name]
 
-            module = importer.find_module(module_name).load_module(module_name)
+    for importer, module_name, _ in modules:
+        module = importer.find_module(module_name).load_module(module_name)
 
         if use_names and hasattr(module, 'name'):
             module_name = module.name
-        module_scripts = OrderedDict()
+
+        module_scripts = {}
         script_order = getattr(module, "script_order", ())
         ordered_scripts = [cls for cls in script_order if is_script(cls)]
         unordered_scripts = [cls for _, cls in inspect.getmembers(module, is_script) if cls not in script_order]
+
         for cls in [*ordered_scripts, *unordered_scripts]:
-            module_scripts[cls.__name__] = cls
+            # For scripts in submodules use the full import path w/o the root module as the name
+            script_name = cls.full_name.split(".", maxsplit=1)[1]
+            module_scripts[script_name] = cls
+
         if module_scripts:
             scripts[module_name] = module_scripts
 

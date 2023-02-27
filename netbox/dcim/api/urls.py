@@ -1,4 +1,4 @@
-from netbox.api import NetBoxRouter
+from netbox.api.routers import NetBoxRouter
 from . import views
 
 
@@ -37,6 +37,7 @@ router.register('inventory-item-templates', views.InventoryItemTemplateViewSet)
 router.register('device-roles', views.DeviceRoleViewSet)
 router.register('platforms', views.PlatformViewSet)
 router.register('devices', views.DeviceViewSet)
+router.register('virtual-device-contexts', views.VirtualDeviceContextViewSet)
 router.register('modules', views.ModuleViewSet)
 
 # Device components
@@ -56,6 +57,7 @@ router.register('inventory-item-roles', views.InventoryItemRoleViewSet)
 
 # Cables
 router.register('cables', views.CableViewSet)
+router.register('cable-terminations', views.CableTerminationViewSet)
 
 # Virtual chassis
 router.register('virtual-chassis', views.VirtualChassisViewSet)

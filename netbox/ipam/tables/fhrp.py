@@ -10,7 +10,7 @@ __all__ = (
 
 
 IPADDRESSES = """
-{% for ip in record.ip_addresses.all %}
+{% for ip in value.all %}
   <a href="{{ ip.get_absolute_url }}">{{ ip }}</a><br />
 {% endfor %}
 """
@@ -20,7 +20,6 @@ class FHRPGroupTable(NetBoxTable):
     group_id = tables.Column(
         linkify=True
     )
-    comments = columns.MarkdownColumn()
     ip_addresses = tables.TemplateColumn(
         template_code=IPADDRESSES,
         orderable=False,
@@ -29,17 +28,23 @@ class FHRPGroupTable(NetBoxTable):
     member_count = tables.Column(
         verbose_name='Members'
     )
+    comments = columns.MarkdownColumn()
     tags = columns.TagColumn(
         url_name='ipam:fhrpgroup_list'
     )
 
+    def value_ip_addresses(self, value):
+        return ",".join([str(obj.address) for obj in value.all()])
+
     class Meta(NetBoxTable.Meta):
         model = FHRPGroup
         fields = (
-            'pk', 'group_id', 'protocol', 'auth_type', 'auth_key', 'description', 'ip_addresses', 'member_count',
-            'tags', 'created', 'last_updated',
+            'pk', 'group_id', 'protocol', 'name', 'auth_type', 'auth_key', 'description', 'comments', 'ip_addresses',
+            'member_count', 'tags', 'created', 'last_updated',
         )
-        default_columns = ('pk', 'group_id', 'protocol', 'auth_type', 'description', 'ip_addresses', 'member_count')
+        default_columns = (
+            'pk', 'group_id', 'protocol', 'name', 'auth_type', 'description', 'ip_addresses', 'member_count',
+        )
 
 
 class FHRPGroupAssignmentTable(NetBoxTable):

@@ -1,20 +1,35 @@
 import datetime
+import decimal
 import json
-from collections import OrderedDict
+import re
 from decimal import Decimal
 from itertools import count, groupby
 
-from django.core.serializers import serialize
+import bleach
+from django.contrib.contenttypes.models import ContentType
+from django.core import serializers
 from django.db.models import Count, OuterRef, Subquery
 from django.db.models.functions import Coalesce
 from django.http import QueryDict
+from django.utils.html import escape
+from django.utils import timezone
+from django.utils.timezone import localtime
 from jinja2.sandbox import SandboxedEnvironment
 from mptt.models import MPTTModel
 
-from dcim.choices import CableLengthUnitChoices
+from dcim.choices import CableLengthUnitChoices, WeightUnitChoices
 from extras.plugins import PluginConfig
 from extras.utils import is_taggable
+from netbox.config import get_config
+from urllib.parse import urlencode
 from utilities.constants import HTTP_REQUEST_META_SAFE_COPY
+
+
+def title(value):
+    """
+    Improved implementation of str.title(); retains all existing uppercase letters.
+    """
+    return ' '.join([w[0].upper() + w[1:] for w in str(value).split()])
 
 
 def get_viewname(model, action=None, rest_api=False):
@@ -124,14 +139,14 @@ def count_related(model, field):
     return Coalesce(subquery, 0)
 
 
-def serialize_object(obj, extra=None):
+def serialize_object(obj, resolve_tags=True, extra=None):
     """
     Return a generic JSON representation of an object using Django's built-in serializer. (This is used for things like
     change logging, not the REST API.) Optionally include a dictionary to supplement the object data. A list of keys
     can be provided to exclude them from the returned dictionary. Private fields (prefaced with an underscore) are
     implicitly excluded.
     """
-    json_str = serialize('json', [obj])
+    json_str = serializers.serialize('json', [obj])
     data = json.loads(json_str)[0]['fields']
 
     # Exclude any MPTTModel fields
@@ -143,10 +158,11 @@ def serialize_object(obj, extra=None):
     if hasattr(obj, 'custom_field_data'):
         data['custom_fields'] = data.pop('custom_field_data')
 
-    # Include any tags. Check for tags cached on the instance; fall back to using the manager.
-    if is_taggable(obj):
+    # Resolve any assigned tags to their names. Check for tags cached on the instance;
+    # fall back to using the manager.
+    if resolve_tags and is_taggable(obj):
         tags = getattr(obj, '_tags', None) or obj.tags.all()
-        data['tags'] = [tag.name for tag in tags]
+        data['tags'] = sorted([tag.name for tag in tags])
 
     # Append any extra data
     if extra is not None:
@@ -159,6 +175,24 @@ def serialize_object(obj, extra=None):
             data.pop(key)
 
     return data
+
+
+def deserialize_object(model, fields, pk=None):
+    """
+    Instantiate an object from the given model and field data. Functions as
+    the complement to serialize_object().
+    """
+    content_type = ContentType.objects.get_for_model(model)
+    if 'custom_fields' in fields:
+        fields['custom_field_data'] = fields.pop('custom_fields')
+    data = {
+        'model': '.'.join(content_type.natural_key()),
+        'pk': pk,
+        'fields': fields,
+    }
+    instance = list(serializers.deserialize('python', [data]))[0]
+
+    return instance
 
 
 def dict_to_filter_params(d, prefix=''):
@@ -215,13 +249,28 @@ def deepmerge(original, new):
     """
     Deep merge two dictionaries (new into original) and return a new dict
     """
-    merged = OrderedDict(original)
+    merged = dict(original)
     for key, val in new.items():
         if key in original and isinstance(original[key], dict) and val and isinstance(val, dict):
             merged[key] = deepmerge(original[key], val)
         else:
             merged[key] = val
     return merged
+
+
+def drange(start, end, step=decimal.Decimal(1)):
+    """
+    Decimal-compatible implementation of Python's range()
+    """
+    start, end, step = decimal.Decimal(start), decimal.Decimal(end), decimal.Decimal(step)
+    if start < end:
+        while start < end:
+            yield start
+            start += step
+    else:
+        while start > end:
+            yield start
+            start += step
 
 
 def to_meters(length, unit):
@@ -253,38 +302,61 @@ def to_meters(length, unit):
     raise ValueError(f"Unknown unit {unit}. Must be 'km', 'm', 'cm', 'mi', 'ft', or 'in'.")
 
 
+def to_grams(weight, unit):
+    """
+    Convert the given weight to kilograms.
+    """
+    try:
+        if weight < 0:
+            raise ValueError("Weight must be a positive number")
+    except TypeError:
+        raise TypeError(f"Invalid value '{weight}' for weight (must be a number)")
+
+    valid_units = WeightUnitChoices.values()
+    if unit not in valid_units:
+        raise ValueError(f"Unknown unit {unit}. Must be one of the following: {', '.join(valid_units)}")
+
+    if unit == WeightUnitChoices.UNIT_KILOGRAM:
+        return weight * 1000
+    if unit == WeightUnitChoices.UNIT_GRAM:
+        return weight
+    if unit == WeightUnitChoices.UNIT_POUND:
+        return weight * Decimal(453.592)
+    if unit == WeightUnitChoices.UNIT_OUNCE:
+        return weight * Decimal(28.3495)
+    raise ValueError(f"Unknown unit {unit}. Must be 'kg', 'g', 'lb', 'oz'.")
+
+
 def render_jinja2(template_code, context):
     """
     Render a Jinja2 template with the provided context. Return the rendered content.
     """
-    return SandboxedEnvironment().from_string(source=template_code).render(**context)
+    environment = SandboxedEnvironment()
+    environment.filters.update(get_config().JINJA2_FILTERS)
+    return environment.from_string(source=template_code).render(**context)
 
 
 def prepare_cloned_fields(instance):
     """
-    Compile an object's `clone_fields` list into a string of URL query parameters. Tags are automatically cloned where
-    applicable.
+    Generate a QueryDict comprising attributes from an object's clone() method.
     """
+    # Generate the clone attributes from the instance
+    if not hasattr(instance, 'clone'):
+        return QueryDict(mutable=True)
+    attrs = instance.clone()
+
+    # Prepare querydict parameters
     params = []
-    for field_name in getattr(instance, 'clone_fields', []):
-        field = instance._meta.get_field(field_name)
-        field_value = field.value_from_object(instance)
-
-        # Pass False as null for boolean fields
-        if field_value is False:
-            params.append((field_name, ''))
-
-        # Omit empty values
-        elif field_value not in (None, ''):
-            params.append((field_name, field_value))
-
-    # Copy tags
-    if is_taggable(instance):
-        for tag in instance.tags.all():
-            params.append(('tags', tag.pk))
+    for key, value in attrs.items():
+        if type(value) in (list, tuple):
+            params.extend([(key, v) for v in value])
+        elif value not in (False, None):
+            params.append((key, value))
+        else:
+            params.append((key, ''))
 
     # Return a QueryDict with the parameters
-    return QueryDict('&'.join([f'{k}={v}' for k, v in params]), mutable=True)
+    return QueryDict(urlencode(params), mutable=True)
 
 
 def shallow_compare_dict(source_dict, destination_dict, exclude=None):
@@ -321,23 +393,47 @@ def flatten_dict(d, prefix='', separator='.'):
     return ret
 
 
+def array_to_ranges(array):
+    """
+    Convert an arbitrary array of integers to a list of consecutive values. Nonconsecutive values are returned as
+    single-item tuples. For example:
+        [0, 1, 2, 10, 14, 15, 16] => [(0, 2), (10,), (14, 16)]"
+    """
+    group = (
+        list(x) for _, x in groupby(sorted(array), lambda x, c=count(): next(c) - x)
+    )
+    return [
+        (g[0], g[-1])[:len(g)] for g in group
+    ]
+
+
 def array_to_string(array):
     """
     Generate an efficient, human-friendly string from a set of integers. Intended for use with ArrayField.
     For example:
         [0, 1, 2, 10, 14, 15, 16] => "0-2, 10, 14-16"
     """
-    group = (list(x) for _, x in groupby(sorted(array), lambda x, c=count(): next(c) - x))
-    return ', '.join('-'.join(map(str, (g[0], g[-1])[:len(g)])) for g in group)
+    ret = []
+    ranges = array_to_ranges(array)
+    for value in ranges:
+        if len(value) == 1:
+            ret.append(str(value[0]))
+        else:
+            ret.append(f'{value[0]}-{value[1]}')
+    return ', '.join(ret)
 
 
-def content_type_name(ct):
+def content_type_name(ct, include_app=True):
     """
     Return a human-friendly ContentType name (e.g. "DCIM > Site").
     """
     try:
         meta = ct.model_class()._meta
-        return f'{meta.app_config.verbose_name} > {meta.verbose_name}'
+        app_label = title(meta.app_config.verbose_name)
+        model_name = title(meta.verbose_name)
+        if include_app:
+            return f'{app_label} > {model_name}'
+        return model_name
     except AttributeError:
         # Model no longer exists
         return f'{ct.app_label} > {ct.model}'
@@ -375,6 +471,7 @@ def copy_safe_request(request):
     }
     return NetBoxFakeRequest({
         'META': meta,
+        'COOKIES': request.COOKIES,
         'POST': request.POST,
         'GET': request.GET,
         'FILES': request.FILES,
@@ -382,3 +479,71 @@ def copy_safe_request(request):
         'path': request.path,
         'id': getattr(request, 'id', None),  # UUID assigned by middleware
     })
+
+
+def clean_html(html, schemes):
+    """
+    Sanitizes HTML based on a whitelist of allowed tags and attributes.
+    Also takes a list of allowed URI schemes.
+    """
+
+    ALLOWED_TAGS = [
+        "div", "pre", "code", "blockquote", "del",
+        "hr", "h1", "h2", "h3", "h4", "h5", "h6",
+        "ul", "ol", "li", "p", "br",
+        "strong", "em", "a", "b", "i", "img",
+        "table", "thead", "tbody", "tr", "th", "td",
+        "dl", "dt", "dd",
+    ]
+
+    ALLOWED_ATTRIBUTES = {
+        "div": ['class'],
+        "h1": ["id"], "h2": ["id"], "h3": ["id"], "h4": ["id"], "h5": ["id"], "h6": ["id"],
+        "a": ["href", "title"],
+        "img": ["src", "title", "alt"],
+    }
+
+    return bleach.clean(
+        html,
+        tags=ALLOWED_TAGS,
+        attributes=ALLOWED_ATTRIBUTES,
+        protocols=schemes
+    )
+
+
+def highlight_string(value, highlight, trim_pre=None, trim_post=None, trim_placeholder='...'):
+    """
+    Highlight a string within a string and optionally trim the pre/post portions of the original string.
+
+    Args:
+        value: The body of text being searched against
+        highlight: The string of compiled regex pattern to highlight in `value`
+        trim_pre: Maximum length of pre-highlight text to include
+        trim_post: Maximum length of post-highlight text to include
+        trim_placeholder: String value to swap in for trimmed pre/post text
+    """
+    # Split value on highlight string
+    try:
+        if type(highlight) is re.Pattern:
+            pre, match, post = highlight.split(value, maxsplit=1)
+        else:
+            highlight = re.escape(highlight)
+            pre, match, post = re.split(fr'({highlight})', value, maxsplit=1, flags=re.IGNORECASE)
+    except ValueError as e:
+        # Match not found
+        return escape(value)
+
+    # Trim pre/post sections to length
+    if trim_pre and len(pre) > trim_pre:
+        pre = trim_placeholder + pre[-trim_pre:]
+    if trim_post and len(post) > trim_post:
+        post = post[:trim_post] + trim_placeholder
+
+    return f'{escape(pre)}<mark>{escape(match)}</mark>{escape(post)}'
+
+
+def local_now():
+    """
+    Return the current date & time in the system timezone.
+    """
+    return localtime(timezone.now())

@@ -1,14 +1,21 @@
 # close-stale-issues (https://github.com/marketplace/actions/close-stale-issues)
 name: 'Close stale issues/PRs'
+
 on:
   schedule:
     - cron: '0 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
 
 jobs:
   stale:
+
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/stale@v5
+      - uses: actions/stale@v6
         with:
           close-issue-message: >
             This issue has been automatically closed due to lack of activity. In an
@@ -17,7 +24,7 @@ jobs:
             necessary.
           close-pr-message: >
             This PR has been automatically closed due to lack of activity.
-          days-before-stale: 60
+          days-before-stale: 90
           days-before-close: 30
           exempt-issue-labels: 'status: accepted,status: blocked,status: needs milestone'
           operations-per-run: 100
@@ -27,7 +34,10 @@ jobs:
             This issue has been automatically marked as stale because it has not had
             recent activity. It will be closed if no further activity occurs. NetBox
             is governed by a small group of core maintainers which means not all opened
-            issues may receive direct feedback. Please see our [contributing guide](https://github.com/netbox-community/netbox/blob/develop/CONTRIBUTING.md).
+            issues may receive direct feedback. **Do not** attempt to circumvent this
+            process by "bumping" the issue; doing so will result in its immediate closure
+            and you may be barred from participating in any future discussions. Please see
+            our [contributing guide](https://github.com/netbox-community/netbox/blob/develop/CONTRIBUTING.md).
           stale-pr-label: 'pending closure'
           stale-pr-message: >
             This PR has been automatically marked as stale because it has not had

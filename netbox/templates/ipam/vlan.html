@@ -21,7 +21,7 @@
                                     {% endif %}
                                     {{ object.site|linkify }}
                                 {% else %}
-                                    <span class="text-muted">None</span>
+                                    {{ ''|placeholder }}
                                 {% endif %}
                             </td>
                         </tr>
@@ -56,7 +56,7 @@
                                 {% if object.role %}
                                     <a href="{% url 'ipam:vlan_list' %}?role={{ object.role.slug }}">{{ object.role }}</a>
                                 {% else %}
-                                    <span class="text-muted">None</span>
+                                    {{ ''|placeholder }}
                                 {% endif %}
                             </td>
                         </tr>
@@ -64,15 +64,20 @@
                             <th scope="row">Description</th>
                             <td>{{ object.description|placeholder }}</td>
                         </tr>
+                        <tr>
+                          <th scope="row">L2VPN</th>
+                          <td>{{ object.l2vpn_termination.l2vpn|linkify|placeholder }}</td>
+                        </tr>
                     </table>
                 </div>
             </div>
             {% plugin_left_page object %}
         </div>
         <div class="col col-md-6">
-            {% include 'inc/panels/custom_fields.html' %}
-            {% include 'inc/panels/tags.html' %}
-            {% plugin_right_page object %}
+          {% include 'inc/panels/custom_fields.html' %}
+          {% include 'inc/panels/tags.html' %}
+          {% include 'inc/panels/comments.html' %}
+          {% plugin_right_page object %}
         </div>
     </div>
     <div class="row">

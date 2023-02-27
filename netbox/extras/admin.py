@@ -15,6 +15,9 @@ class ConfigRevisionAdmin(admin.ModelAdmin):
         ('Rack Elevations', {
             'fields': ('RACK_ELEVATION_DEFAULT_UNIT_HEIGHT', 'RACK_ELEVATION_DEFAULT_UNIT_WIDTH'),
         }),
+        ('Power', {
+            'fields': ('POWERFEED_DEFAULT_VOLTAGE', 'POWERFEED_DEFAULT_AMPERAGE', 'POWERFEED_DEFAULT_MAX_UTILIZATION')
+        }),
         ('IPAM', {
             'fields': ('ENFORCE_GLOBAL_UNIQUE', 'PREFER_IPV4'),
         }),
@@ -128,24 +131,3 @@ class ConfigRevisionAdmin(admin.ModelAdmin):
         })
 
         return TemplateResponse(request, 'admin/extras/configrevision/restore.html', context)
-
-
-#
-# Reports & scripts
-#
-
-@admin.register(JobResult)
-class JobResultAdmin(admin.ModelAdmin):
-    list_display = [
-        'obj_type', 'name', 'created', 'completed', 'user', 'status',
-    ]
-    fields = [
-        'obj_type', 'name', 'created', 'completed', 'user', 'status', 'data', 'job_id'
-    ]
-    list_filter = [
-        'status',
-    ]
-    readonly_fields = fields
-
-    def has_add_permission(self, request):
-        return False

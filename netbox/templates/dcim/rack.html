@@ -53,7 +53,7 @@
                                 {% endfor %}
                                 {{ object.location|linkify }}
                             {% else %}
-                                <span class="text-muted">None</span>
+                                {{ ''|placeholder }}
                             {% endif %}
                         </td>
                     </tr>
@@ -77,6 +77,10 @@
                     <tr>
                         <th scope="row">Role</th>
                         <td>{{ object.role|linkify|placeholder }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Description</th>
+                        <td>{{ object.description|placeholder }}</td>
                     </tr>
                     <tr>
                         <th scope="row">Serial Number</th>
@@ -104,9 +108,7 @@
             </div>
         </div>
         <div class="card">
-            <h5 class="card-header">
-                Dimensions
-            </h5>
+            <h5 class="card-header">Dimensions</h5>
             <div class="card-body">
                 <table class="table table-hover attr-table">
                     <tr>
@@ -115,7 +117,7 @@
                             {% if object.type %}
                                 {{ object.get_type_display }}
                             {% else %}
-                                <span class="text-muted">None</span>
+                                {{ ''|placeholder }}
                             {% endif %}
                         </td>
                     </tr>
@@ -131,9 +133,9 @@
                         <th scope="row">Outer Width</th>
                         <td>
                             {% if object.outer_width %}
-                                <span>{{ object.outer_width }} {{ object.get_outer_unit_display }}</span>
+                                {{ object.outer_width }} {{ object.get_outer_unit_display }}
                             {% else %}
-                                <span class="text-muted">&mdash;</span>
+                                {{ ''|placeholder }}
                             {% endif %}
                         </td>
                     </tr>
@@ -141,10 +143,47 @@
                         <th scope="row">Outer Depth</th>
                         <td>
                             {% if object.outer_depth %}
-                                <span>{{ object.outer_depth }} {{ object.get_outer_unit_display }}</span>
+                                {{ object.outer_depth }} {{ object.get_outer_unit_display }}
                             {% else %}
-                                <span class="text-muted">&mdash;</span>
+                                {{ ''|placeholder }}
                             {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Mounting Depth</th>
+                        <td>
+                            {% if object.mounting_depth %}
+                                {{ object.mounting_depth }} Millimeters
+                            {% else %}
+                                {{ ''|placeholder }}
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Rack Weight</th>
+                        <td>
+                            {% if object.weight %}
+                                {{ object.weight|floatformat }} {{ object.get_weight_unit_display }}
+                            {% else %}
+                                {{ ''|placeholder }}
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Maximum Weight</th>
+                        <td>
+                            {% if object.max_weight %}
+                                {{ object.max_weight }} {{ object.get_weight_unit_display }}
+                            {% else %}
+                                {{ ''|placeholder }}
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Total Weight</th>
+                        <td>
+                          {{ object.total_weight|floatformat }} Kilograms
+                          ({{ object.total_weight|kg_to_pounds|floatformat }} Pounds)
                         </td>
                     </tr>
                 </table>
@@ -173,7 +212,7 @@
                                 <td>{{ powerfeed|linkify }}</td>
                                 <td>{% badge powerfeed.get_status_display bg_color=powerfeed.get_status_color %}</td>
                                 <td>{% badge powerfeed.get_type_display bg_color=powerfeed.get_type_color %}</td>
-                                {% with power_port=powerfeed.connected_endpoint %}
+                                {% with power_port=powerfeed.connected_endpoints.0 %}
                                     {% if power_port %}
                                         <td>{% utilization_graph power_port.get_power_draw.allocated|percentage:powerfeed.available_power %}</td>
                                     {% else %}
@@ -186,6 +225,7 @@
                 </div>
             </div>
         {% endif %}
+
         {% include 'inc/panels/image_attachments.html' %}
         <div class="card">
             <h5 class="card-header">
@@ -250,13 +290,13 @@
             <div class="col col-md-6 col-sm-6 col-xs-12 text-center">
               <div style="margin-left: 30px">
                 <h4>Front</h4>
-                {% include 'dcim/inc/rack_elevation.html' with face='front' %}
+                {% include 'dcim/inc/rack_elevation.html' with face='front' extra_params=svg_extra %}
               </div>
             </div>
             <div class="col col-md-6 col-sm-6 col-xs-12 text-center">
               <div style="margin-left: 30px">
                 <h4>Rear</h4>
-                {% include 'dcim/inc/rack_elevation.html' with face='rear' %}
+                {% include 'dcim/inc/rack_elevation.html' with face='rear' extra_params=svg_extra %}
               </div>
             </div>
         </div>

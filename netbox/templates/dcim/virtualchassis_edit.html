@@ -8,6 +8,10 @@
   <div class="tab-content">
     <div class="tab-pane show active" id="edit-form" role="tabpanel" aria-labelledby="object-list-tab">
       <form action="" method="post" enctype="multipart/form-data" class="form-object-edit">
+        {% for form in formset %}
+          {% render_errors form %}
+        {% endfor %}
+
         {% csrf_token %}
         {{ pk_form.pk }}
         {{ formset.management_form }}
@@ -17,12 +21,18 @@
           </div>
           {% render_field vc_form.name %}
           {% render_field vc_form.domain %}
+          {% render_field vc_form.description %}
           {% render_field vc_form.master %}
           {% render_field vc_form.tags %}
         </div>
 
+        <div class="field-group my-5">
+          <h5 class="text-center">Comments</h5>
+          {% render_field vc_form.comments %}
+        </div>
+
         {% if vc_form.custom_fields %}
-          <div class="field-group my-5">
+          <div class="field-group mb-5">
             <div class="row mb-2">
               <h5 class="offset-sm-3">Custom Fields</h5>
             </div>
@@ -55,9 +65,9 @@
                               <td>{{ device.pk }}</td>
                               <td>
                                   {% if device.rack %}
-                                      {{ device.rack }} / {{ device.position }}
+                                      {{ device.rack }} / {{ device.position|floatformat }}
                                   {% else %}
-                                      <span class="text-muted">&mdash;</span>
+                                      {{ ''|placeholder }}
                                   {% endif %}
                               </td>
                               <td>{{ device.serial|placeholder }}</td>

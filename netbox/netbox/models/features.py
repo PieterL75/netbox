@@ -1,19 +1,24 @@
+from collections import defaultdict
+from functools import cached_property
+
 from django.contrib.contenttypes.fields import GenericRelation
 from django.db.models.signals import class_prepared
 from django.dispatch import receiver
 
-from django.core.serializers.json import DjangoJSONEncoder
 from django.core.validators import ValidationError
 from django.db import models
 from taggit.managers import TaggableManager
 
-from extras.choices import ObjectChangeActionChoices
-from extras.utils import register_features
+from extras.choices import CustomFieldVisibilityChoices, ObjectChangeActionChoices
+from extras.utils import is_taggable, register_features
 from netbox.signals import post_clean
+from utilities.json import CustomFieldJSONEncoder
 from utilities.utils import serialize_object
+from utilities.views import register_model_view
 
 __all__ = (
     'ChangeLoggingMixin',
+    'CloningMixin',
     'CustomFieldsMixin',
     'CustomLinksMixin',
     'CustomValidationMixin',
@@ -47,11 +52,19 @@ class ChangeLoggingMixin(models.Model):
     class Meta:
         abstract = True
 
+    def serialize_object(self):
+        """
+        Return a JSON representation of the instance. Models can override this method to replace or extend the default
+        serialization logic provided by the `serialize_object()` utility function.
+        """
+        return serialize_object(self)
+
     def snapshot(self):
         """
-        Save a snapshot of the object's current state in preparation for modification.
+        Save a snapshot of the object's current state in preparation for modification. The snapshot is saved as
+        `_prechange_snapshot` on the instance.
         """
-        self._prechange_snapshot = serialize_object(self)
+        self._prechange_snapshot = self.serialize_object()
 
     def to_objectchange(self, action):
         """
@@ -67,9 +80,45 @@ class ChangeLoggingMixin(models.Model):
         if hasattr(self, '_prechange_snapshot'):
             objectchange.prechange_data = self._prechange_snapshot
         if action in (ObjectChangeActionChoices.ACTION_CREATE, ObjectChangeActionChoices.ACTION_UPDATE):
-            objectchange.postchange_data = serialize_object(self)
+            objectchange.postchange_data = self.serialize_object()
 
         return objectchange
+
+
+class CloningMixin(models.Model):
+    """
+    Provides the clone() method used to prepare a copy of existing objects.
+    """
+    class Meta:
+        abstract = True
+
+    def clone(self):
+        """
+        Returns a dictionary of attributes suitable for creating a copy of the current instance. This is used for pre-
+        populating an object creation form in the UI. By default, this method will replicate any fields listed in the
+        model's `clone_fields` list (if defined), but it can be overridden to apply custom logic.
+
+        ```python
+        class MyModel(NetBoxModel):
+            def clone(self):
+                attrs = super().clone()
+                attrs['extra-value'] = 123
+                return attrs
+        ```
+        """
+        attrs = {}
+
+        for field_name in getattr(self, 'clone_fields', []):
+            field = self._meta.get_field(field_name)
+            field_value = field.value_from_object(self)
+            if field_value not in (None, ''):
+                attrs[field_name] = field_value
+
+        # Include tags (if applicable)
+        if is_taggable(self):
+            attrs['tags'] = [tag.pk for tag in self.tags.all()]
+
+        return attrs
 
 
 class CustomFieldsMixin(models.Model):
@@ -77,7 +126,7 @@ class CustomFieldsMixin(models.Model):
     Enables support for custom fields.
     """
     custom_field_data = models.JSONField(
-        encoder=DjangoJSONEncoder,
+        encoder=CustomFieldJSONEncoder,
         blank=True,
         default=dict
     )
@@ -85,20 +134,37 @@ class CustomFieldsMixin(models.Model):
     class Meta:
         abstract = True
 
-    @property
+    @cached_property
     def cf(self):
         """
-        A pass-through convenience alias for accessing `custom_field_data` (read-only).
+        Return a dictionary mapping each custom field for this instance to its deserialized value.
 
         ```python
         >>> tenant = Tenant.objects.first()
         >>> tenant.cf
-        {'cust_id': 'CYB01'}
+        {'primary_site': <Site: DM-NYC>, 'cust_id': 'DMI01', 'is_active': True}
         ```
         """
-        return self.custom_field_data
+        return {
+            cf.name: cf.deserialize(self.custom_field_data.get(cf.name))
+            for cf in self.custom_fields
+        }
 
-    def get_custom_fields(self):
+    @cached_property
+    def custom_fields(self):
+        """
+        Return the QuerySet of CustomFields assigned to this model.
+
+        ```python
+        >>> tenant = Tenant.objects.first()
+        >>> tenant.custom_fields
+        <RestrictedQuerySet [<CustomField: Primary site>, <CustomField: Customer ID>, <CustomField: Is active>]>
+        ```
+        """
+        from extras.models import CustomField
+        return CustomField.objects.get_for_model(self)
+
+    def get_custom_fields(self, omit_hidden=False):
         """
         Return a dictionary of custom fields for a single object in the form `{field: value}`.
 
@@ -107,15 +173,48 @@ class CustomFieldsMixin(models.Model):
         >>> tenant.get_custom_fields()
         {<CustomField: Customer ID>: 'CYB01'}
         ```
+
+        Args:
+            omit_hidden: If True, custom fields with no UI visibility will be omitted.
         """
         from extras.models import CustomField
-
         data = {}
+
         for field in CustomField.objects.get_for_model(self):
+            # Skip fields that are hidden if 'omit_hidden' is set
+            if omit_hidden and field.ui_visibility == CustomFieldVisibilityChoices.VISIBILITY_HIDDEN:
+                continue
+
             value = self.custom_field_data.get(field.name)
             data[field] = field.deserialize(value)
 
         return data
+
+    def get_custom_fields_by_group(self):
+        """
+        Return a dictionary of custom field/value mappings organized by group. Hidden fields are omitted.
+
+        ```python
+        >>> tenant = Tenant.objects.first()
+        >>> tenant.get_custom_fields_by_group()
+        {
+            '': {<CustomField: Primary site>: <Site: DM-NYC>},
+            'Billing': {<CustomField: Customer ID>: 'DMI01', <CustomField: Is active>: True}
+        }
+        ```
+        """
+        from extras.models import CustomField
+        groups = defaultdict(dict)
+        visible_custom_fields = CustomField.objects.get_for_model(self).exclude(
+            ui_visibility=CustomFieldVisibilityChoices.VISIBILITY_HIDDEN
+        )
+
+        for cf in visible_custom_fields:
+            value = self.custom_field_data.get(cf.name)
+            value = cf.deserialize(value)
+            groups[cf.group_name][cf] = value
+
+        return dict(groups)
 
     def clean(self):
         super().clean()
@@ -157,6 +256,10 @@ class CustomValidationMixin(models.Model):
 
     def clean(self):
         super().clean()
+
+        # If the instance is a base for replications, skip custom validation
+        if getattr(self, '_replicated_base', False):
+            return
 
         # Send the post_clean signal
         post_clean.send(sender=self.__class__, instance=self)
@@ -231,3 +334,17 @@ def _register_features(sender, **kwargs):
         feature for feature, cls in FEATURES_MAP if issubclass(sender, cls)
     }
     register_features(sender, features)
+
+    # Feature view registration
+    if issubclass(sender, JournalingMixin):
+        register_model_view(
+            sender,
+            'journal',
+            kwargs={'model': sender}
+        )('netbox.views.generic.ObjectJournalView')
+    if issubclass(sender, ChangeLoggingMixin):
+        register_model_view(
+            sender,
+            'changelog',
+            kwargs={'model': sender}
+        )('netbox.views.generic.ObjectChangeLogView')

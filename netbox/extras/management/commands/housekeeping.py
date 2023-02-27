@@ -37,7 +37,7 @@ class Command(BaseCommand):
                     f"clearing sessions; skipping."
                 )
 
-        # Delete expired ObjectRecords
+        # Delete expired ObjectChanges
         if options['verbosity']:
             self.stdout.write("[*] Checking for expired changelog records")
         if config.CHANGELOG_RETENTION:
@@ -81,7 +81,7 @@ class Command(BaseCommand):
                         ending=""
                     )
                     self.stdout.flush()
-                JobResult.objects.filter(created__lt=cutoff)._raw_delete(using=DEFAULT_DB_ALIAS)
+                JobResult.objects.filter(created__lt=cutoff).delete()
                 if options['verbosity']:
                     self.stdout.write("Done.", self.style.SUCCESS)
             elif options['verbosity']:

@@ -8,8 +8,11 @@ from django.contrib.auth.models import Group, AnonymousUser
 from django.core.exceptions import ImproperlyConfigured
 from django.db.models import Q
 
+from users.constants import CONSTRAINT_TOKEN_USER
 from users.models import ObjectPermission
-from utilities.permissions import permission_is_exempt, resolve_permission, resolve_permission_ct
+from utilities.permissions import (
+    permission_is_exempt, qs_filter_from_constraints, resolve_permission, resolve_permission_ct,
+)
 
 UserModel = get_user_model()
 
@@ -21,6 +24,7 @@ AUTH_BACKEND_ATTRS = {
     'azuread-oauth2': ('Microsoft Azure AD', 'microsoft'),
     'azuread-b2c-oauth2': ('Microsoft Azure AD', 'microsoft'),
     'azuread-tenant-oauth2': ('Microsoft Azure AD', 'microsoft'),
+    'azuread-v2-tenant-oauth2': ('Microsoft Azure AD', 'microsoft'),
     'bitbucket': ('BitBucket', 'bitbucket'),
     'bitbucket-oauth2': ('BitBucket', 'bitbucket'),
     'digitalocean': ('DigitalOcean', 'digital-ocean'),
@@ -50,6 +54,10 @@ def get_auth_backend_display(name):
     raw backend name and no icon.
     """
     return AUTH_BACKEND_ATTRS.get(name, (name, None))
+
+
+def get_saml_idps():
+    return getattr(settings, "SOCIAL_AUTH_SAML_ENABLED_IDPS", {}).keys()
 
 
 class ObjectPermissionMixin:
@@ -99,8 +107,10 @@ class ObjectPermissionMixin:
         if not user_obj.is_active or user_obj.is_anonymous:
             return False
 
+        object_permissions = self.get_all_permissions(user_obj)
+
         # If no applicable ObjectPermissions have been created for this user/permission, deny permission
-        if perm not in self.get_all_permissions(user_obj):
+        if perm not in object_permissions:
             return False
 
         # If no object has been specified, grant permission. (The presence of a permission in this set tells
@@ -113,21 +123,16 @@ class ObjectPermissionMixin:
         if model._meta.label_lower != '.'.join((app_label, model_name)):
             raise ValueError(f"Invalid permission {perm} for model {model}")
 
-        # Compile a query filter that matches all instances of the specified model
-        obj_perm_constraints = self.get_all_permissions(user_obj)[perm]
-        constraints = Q()
-        for perm_constraints in obj_perm_constraints:
-            if perm_constraints:
-                constraints |= Q(**perm_constraints)
-            else:
-                # Found ObjectPermission with null constraints; allow model-level access
-                constraints = Q()
-                break
+        # Compile a QuerySet filter that matches all instances of the specified model
+        tokens = {
+            CONSTRAINT_TOKEN_USER: user_obj,
+        }
+        qs_filter = qs_filter_from_constraints(object_permissions[perm], tokens)
 
         # Permission to perform the requested action on the object depends on whether the specified object matches
         # the specified constraints. Note that this check is made against the *database* record representing the object,
         # not the instance itself.
-        return model.objects.filter(constraints, pk=obj.pk).exists()
+        return model.objects.filter(qs_filter, pk=obj.pk).exists()
 
 
 class ObjectPermissionBackend(ObjectPermissionMixin, ModelBackend):
@@ -347,4 +352,34 @@ class LDAPBackend:
         if getattr(ldap_config, 'LDAP_IGNORE_CERT_ERRORS', False):
             ldap.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_NEVER)
 
+        # Optionally set CA cert directory
+        if ca_cert_dir := getattr(ldap_config, 'LDAP_CA_CERT_DIR', None):
+            ldap.set_option(ldap.OPT_X_TLS_CACERTDIR, ca_cert_dir)
+
+        # Optionally set CA cert file
+        if ca_cert_file := getattr(ldap_config, 'LDAP_CA_CERT_FILE', None):
+            ldap.set_option(ldap.OPT_X_TLS_CACERTFILE, ca_cert_file)
+
         return obj
+
+
+# Custom Social Auth Pipeline Handlers
+def user_default_groups_handler(backend, user, response, *args, **kwargs):
+    """
+    Custom pipeline handler which adds remote auth users to the default group specified in the
+    configuration file.
+    """
+    logger = logging.getLogger('netbox.auth.user_default_groups_handler')
+    if settings.REMOTE_AUTH_DEFAULT_GROUPS:
+        # Assign default groups to the user
+        group_list = []
+        for name in settings.REMOTE_AUTH_DEFAULT_GROUPS:
+            try:
+                group_list.append(Group.objects.get(name=name))
+            except Group.DoesNotExist:
+                logging.error(
+                    f"Could not assign group {name} to remotely-authenticated user {user}: Group not found")
+        if group_list:
+            user.groups.add(*group_list)
+        else:
+            logger.info(f"No valid group assignments for {user} - REMOTE_AUTH_DEFAULT_GROUPS may be incorrectly set?")

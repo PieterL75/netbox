@@ -7,7 +7,7 @@ This section of the documentation discusses installing and configuring the NetBo
 Begin by installing all system packages required by NetBox and its dependencies.
 
 !!! warning "Python 3.8 or later required"
-    NetBox v3.2 requires Python 3.8, 3.9, or 3.10.
+    NetBox requires Python 3.8, 3.9, 3.10 or 3.11.
 
 === "Ubuntu"
 
@@ -36,7 +36,7 @@ This documentation provides two options for installing NetBox: from a downloadab
 Download the [latest stable release](https://github.com/netbox-community/netbox/releases) from GitHub as a tarball or ZIP archive and extract it to your desired path. In this example, we'll use `/opt/netbox` as the NetBox root.
 
 ```no-highlight
-sudo wget https://github.com/netbox-community/netbox/archive/vX.Y.Z.tar.gz
+sudo wget https://github.com/netbox-community/netbox/archive/refs/tags/vX.Y.Z.tar.gz
 sudo tar -xzf vX.Y.Z.tar.gz -C /opt
 sudo ln -s /opt/netbox-X.Y.Z/ /opt/netbox
 ```
@@ -142,7 +142,7 @@ ALLOWED_HOSTS = ['*']
 
 ### DATABASE
 
-This parameter holds the database configuration details. You must define the username and password used when you configured PostgreSQL. If the service is running on a remote host, update the `HOST` and `PORT` parameters accordingly. See the [configuration documentation](../configuration/required-settings.md#database) for more detail on individual parameters.
+This parameter holds the database configuration details. You must define the username and password used when you configured PostgreSQL. If the service is running on a remote host, update the `HOST` and `PORT` parameters accordingly. See the [configuration documentation](../configuration/required-parameters.md#database) for more detail on individual parameters.
 
 ```python
 DATABASE = {
@@ -157,7 +157,7 @@ DATABASE = {
 
 ### REDIS
 
-Redis is a in-memory key-value store used by NetBox for caching and background task queuing. Redis typically requires minimal configuration; the values below should suffice for most installations. See the [configuration documentation](../configuration/required-settings.md#redis) for more detail on individual parameters.
+Redis is a in-memory key-value store used by NetBox for caching and background task queuing. Redis typically requires minimal configuration; the values below should suffice for most installations. See the [configuration documentation](../configuration/required-parameters.md#redis) for more detail on individual parameters.
 
 Note that NetBox requires the specification of two separate Redis databases: `tasks` and `caching`. These may both be provided by the same Redis service, however each should have a unique numeric database ID.
 
@@ -201,7 +201,7 @@ All Python packages required by NetBox are listed in `requirements.txt` and will
 
 ### NAPALM
 
-Integration with the [NAPALM automation](../additional-features/napalm.md) library allows NetBox to fetch live data from devices and return it to a requester via its REST API. The `NAPALM_USERNAME` and `NAPALM_PASSWORD` configuration parameters define the credentials to be used when connecting to a device.
+Integration with the [NAPALM automation](../integrations/napalm.md) library allows NetBox to fetch live data from devices and return it to a requester via its REST API. The `NAPALM_USERNAME` and `NAPALM_PASSWORD` configuration parameters define the credentials to be used when connecting to a device.
 
 ```no-highlight
 sudo sh -c "echo 'napalm' >> /opt/netbox/local_requirements.txt"
@@ -209,7 +209,7 @@ sudo sh -c "echo 'napalm' >> /opt/netbox/local_requirements.txt"
 
 ### Remote File Storage
 
-By default, NetBox will use the local filesystem to store uploaded files. To use a remote filesystem, install the [`django-storages`](https://django-storages.readthedocs.io/en/stable/) library and configure your [desired storage backend](../configuration/optional-settings.md#storage_backend) in `configuration.py`.
+By default, NetBox will use the local filesystem to store uploaded files. To use a remote filesystem, install the [`django-storages`](https://django-storages.readthedocs.io/en/stable/) library and configure your [desired storage backend](../configuration/system.md#storage_backend) in `configuration.py`.
 
 ```no-highlight
 sudo sh -c "echo 'django-storages' >> /opt/netbox/local_requirements.txt"
@@ -224,6 +224,9 @@ Once NetBox has been configured, we're ready to proceed with the actual installa
 * Run database schema migrations
 * Builds the documentation locally (for offline use)
 * Aggregate static resource files on disk
+
+!!! warning
+    If you still have a Python virtual environment active from a previous installation step, disable it now by running the `deactivate` command. This will avoid errors on systems where `sudo` has been configured to preserve the user's current environment.
 
 ```no-highlight
 sudo /opt/netbox/upgrade.sh
@@ -269,7 +272,10 @@ See the [housekeeping documentation](../administration/housekeeping.md) for furt
 
 ## Test the Application
 
-At this point, we should be able to run NetBox's development server for testing. We can check by starting a development instance:
+At this point, we should be able to run NetBox's development server for testing. We can check by starting a development instance locally.
+
+!!! tip
+    Check that the Python virtual environment is still active before attempting to run the server.
 
 ```no-highlight
 python3 manage.py runserver 0.0.0.0:8000 --insecure

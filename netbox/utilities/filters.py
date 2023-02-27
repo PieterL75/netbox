@@ -1,9 +1,8 @@
 import django_filters
 from django import forms
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django_filters.constants import EMPTY_VALUES
-
-from utilities.forms import MACAddressField
 
 
 def multivalue_field_factory(field_class):
@@ -23,7 +22,15 @@ def multivalue_field_factory(field_class):
                 field.to_python(v) for v in value if v
             ]
 
-    return type('MultiValue{}'.format(field_class.__name__), (NewField,), dict())
+        def run_validators(self, value):
+            for v in value:
+                super().run_validators(v)
+
+        def validate(self, value):
+            for v in value:
+                super().validate(v)
+
+    return type(f'MultiValue{field_class.__name__}', (NewField,), dict())
 
 
 #
@@ -46,6 +53,10 @@ class MultiValueNumberFilter(django_filters.MultipleChoiceFilter):
     field_class = multivalue_field_factory(forms.IntegerField)
 
 
+class MultiValueDecimalFilter(django_filters.MultipleChoiceFilter):
+    field_class = multivalue_field_factory(forms.DecimalField)
+
+
 class MultiValueTimeFilter(django_filters.MultipleChoiceFilter):
     field_class = multivalue_field_factory(forms.TimeField)
 
@@ -56,6 +67,12 @@ class MACAddressFilter(django_filters.CharFilter):
 
 class MultiValueMACAddressFilter(django_filters.MultipleChoiceFilter):
     field_class = multivalue_field_factory(forms.CharField)
+
+    def filter(self, qs, value):
+        try:
+            return super().filter(qs, value)
+        except ValidationError:
+            return qs.none()
 
 
 class MultiValueWWNFilter(django_filters.MultipleChoiceFilter):

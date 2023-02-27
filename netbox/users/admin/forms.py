@@ -3,11 +3,12 @@ from django.contrib.auth.models import Group, User
 from django.contrib.admin.widgets import FilteredSelectMultiple
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import FieldError, ValidationError
-from django.db.models import Q
+from django.utils.translation import gettext as _
 
-from users.constants import OBJECTPERMISSION_OBJECT_TYPES
+from users.constants import CONSTRAINT_TOKEN_USER, OBJECTPERMISSION_OBJECT_TYPES
 from users.models import ObjectPermission, Token
 from utilities.forms.fields import ContentTypeMultipleChoiceField
+from utilities.permissions import qs_filter_from_constraints
 
 __all__ = (
     'GroupAdminForm',
@@ -46,12 +47,12 @@ class GroupAdminForm(forms.ModelForm):
 class TokenAdminForm(forms.ModelForm):
     key = forms.CharField(
         required=False,
-        help_text="If no key is provided, one will be generated automatically."
+        help_text=_("If no key is provided, one will be generated automatically.")
     )
 
     class Meta:
         fields = [
-            'user', 'key', 'write_enabled', 'expires', 'description'
+            'user', 'key', 'write_enabled', 'expires', 'description', 'allowed_ips'
         ]
         model = Token
 
@@ -70,10 +71,10 @@ class ObjectPermissionForm(forms.ModelForm):
         model = ObjectPermission
         exclude = []
         help_texts = {
-            'actions': 'Actions granted in addition to those listed above',
-            'constraints': 'JSON expression of a queryset filter that will return only permitted objects. Leave null '
-                           'to match all objects of this type. A list of multiple objects will result in a logical OR '
-                           'operation.'
+            'actions': _('Actions granted in addition to those listed above'),
+            'constraints': _('JSON expression of a queryset filter that will return only permitted objects. Leave null '
+                             'to match all objects of this type. A list of multiple objects will result in a logical OR '
+                             'operation.')
         }
         labels = {
             'actions': 'Additional actions'
@@ -125,7 +126,10 @@ class ObjectPermissionForm(forms.ModelForm):
             for ct in object_types:
                 model = ct.model_class()
                 try:
-                    model.objects.filter(*[Q(**c) for c in constraints]).exists()
+                    tokens = {
+                        CONSTRAINT_TOKEN_USER: 0,  # Replace token with a null user ID
+                    }
+                    model.objects.filter(qs_filter_from_constraints(constraints, tokens)).exists()
                 except FieldError as e:
                     raise ValidationError({
                         'constraints': f'Invalid filter for {model}: {e}'

@@ -1,16 +1,17 @@
 import hashlib
 import hmac
-from collections import defaultdict
 
 from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
 from django_rq import get_queue
 
+from netbox.config import get_config
+from netbox.constants import RQ_QUEUE_DEFAULT
+from netbox.registry import registry
 from utilities.api import get_serializer_for_model
 from utilities.utils import serialize_object
 from .choices import *
 from .models import Webhook
-from .registry import registry
 
 
 def serialize_for_webhook(instance):
@@ -27,10 +28,18 @@ def serialize_for_webhook(instance):
 
 
 def get_snapshots(instance, action):
-    return {
+    snapshots = {
         'prechange': getattr(instance, '_prechange_snapshot', None),
-        'postchange': serialize_object(instance) if action != ObjectChangeActionChoices.ACTION_DELETE else None,
+        'postchange': None,
     }
+    if action != ObjectChangeActionChoices.ACTION_DELETE:
+        # Use model's serialize_object() method if defined; fall back to serialize_object() utility function
+        if hasattr(instance, 'serialize_object'):
+            snapshots['postchange'] = instance.serialize_object()
+        else:
+            snapshots['postchange'] = serialize_object(instance)
+
+    return snapshots
 
 
 def generate_signature(request_body, secret):
@@ -71,7 +80,8 @@ def flush_webhooks(queue):
     """
     Flush a list of object representation to RQ for webhook processing.
     """
-    rq_queue = get_queue('default')
+    rq_queue_name = get_config().QUEUE_MAPPINGS.get('webhook', RQ_QUEUE_DEFAULT)
+    rq_queue = get_queue(rq_queue_name)
     webhooks_cache = {
         'type_create': {},
         'type_update': {},

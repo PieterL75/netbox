@@ -37,7 +37,7 @@ This class performs two crucial functions:
 1. Apply any fields, methods, and/or attributes necessary to the operation of these features
 2. Register the model with NetBox as utilizing these features
 
-Simply subclass BaseModel when defining a model in your plugin:
+Simply subclass NetBoxModel when defining a model in your plugin:
 
 ```python
 # models.py
@@ -48,6 +48,12 @@ class MyModel(NetBoxModel):
     foo = models.CharField()
     ...
 ```
+
+### NetBoxModel Properties
+
+#### `docs_url`
+
+This attribute specifies the URL at which the documentation for this model can be reached. By default, it will return `/static/docs/models/<app_label>/<model_name>/`. Plugin models can override this to return a custom URL. For example, you might direct the user to your plugin's documentation hosted on [ReadTheDocs](https://readthedocs.org/).
 
 ### Enabling Features Individually
 
@@ -98,6 +104,8 @@ For more information about database migrations, see the [Django documentation](h
 
 ::: netbox.models.features.ChangeLoggingMixin
 
+::: netbox.models.features.CloningMixin
+
 ::: netbox.models.features.CustomLinksMixin
 
 ::: netbox.models.features.CustomFieldsMixin
@@ -138,7 +146,7 @@ class StatusChoices(ChoiceSet):
     key = 'MyModel.status'
 ```
 
-To extend or replace the default values for this choice set, a NetBox administrator can then reference it under the [`FIELD_CHOICES`](../../configuration/optional-settings.md#field_choices) configuration parameter. For example, the `status` field on `MyModel` in `my_plugin` would be referenced as:
+To extend or replace the default values for this choice set, a NetBox administrator can then reference it under the [`FIELD_CHOICES`](../../configuration/data-validation.md#field_choices) configuration parameter. For example, the `status` field on `MyModel` in `my_plugin` would be referenced as:
 
 ```python
 FIELD_CHOICES = {

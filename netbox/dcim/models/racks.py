@@ -1,25 +1,26 @@
-from collections import OrderedDict
+import decimal
+from functools import cached_property
 
 from django.contrib.auth.models import User
 from django.contrib.contenttypes.fields import GenericRelation
-from django.contrib.contenttypes.models import ContentType
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
-from django.db.models import Count, Sum
+from django.db.models import Count
 from django.urls import reverse
+from django.utils.translation import gettext as _
 
 from dcim.choices import *
 from dcim.constants import *
 from dcim.svg import RackElevationSVG
-from netbox.config import get_config
-from netbox.models import OrganizationalModel, NetBoxModel
+from netbox.models import OrganizationalModel, PrimaryModel
 from utilities.choices import ColorChoices
 from utilities.fields import ColorField, NaturalOrderingField
-from utilities.utils import array_to_string
-from .device_components import PowerOutlet, PowerPort
-from .devices import Device
+from utilities.utils import array_to_string, drange, to_grams
+from .device_components import PowerPort
+from .devices import Device, Module
+from .mixins import WeightMixin
 from .power import PowerFeed
 
 __all__ = (
@@ -37,33 +38,15 @@ class RackRole(OrganizationalModel):
     """
     Racks can be organized by functional role, similar to Devices.
     """
-    name = models.CharField(
-        max_length=100,
-        unique=True
-    )
-    slug = models.SlugField(
-        max_length=100,
-        unique=True
-    )
     color = ColorField(
         default=ColorChoices.COLOR_GREY
     )
-    description = models.CharField(
-        max_length=200,
-        blank=True,
-    )
-
-    class Meta:
-        ordering = ['name']
-
-    def __str__(self):
-        return self.name
 
     def get_absolute_url(self):
         return reverse('dcim:rackrole', args=[self.pk])
 
 
-class Rack(NetBoxModel):
+class Rack(PrimaryModel, WeightMixin):
     """
     Devices are housed within Racks. Each rack has a defined height measured in rack units, and a front and rear face.
     Each Rack is assigned to a Site and (optionally) a Location.
@@ -81,7 +64,7 @@ class Rack(NetBoxModel):
         blank=True,
         null=True,
         verbose_name='Facility ID',
-        help_text='Locally-assigned identifier'
+        help_text=_('Locally-assigned identifier')
     )
     site = models.ForeignKey(
         to='dcim.Site',
@@ -113,7 +96,7 @@ class Rack(NetBoxModel):
         related_name='racks',
         blank=True,
         null=True,
-        help_text='Functional role'
+        help_text=_('Functional role')
     )
     serial = models.CharField(
         max_length=50,
@@ -126,7 +109,7 @@ class Rack(NetBoxModel):
         null=True,
         unique=True,
         verbose_name='Asset tag',
-        help_text='A unique tag used to identify this rack'
+        help_text=_('A unique tag used to identify this rack')
     )
     type = models.CharField(
         choices=RackTypeChoices,
@@ -138,36 +121,51 @@ class Rack(NetBoxModel):
         choices=RackWidthChoices,
         default=RackWidthChoices.WIDTH_19IN,
         verbose_name='Width',
-        help_text='Rail-to-rail width'
+        help_text=_('Rail-to-rail width')
     )
     u_height = models.PositiveSmallIntegerField(
         default=RACK_U_HEIGHT_DEFAULT,
         verbose_name='Height (U)',
         validators=[MinValueValidator(1), MaxValueValidator(100)],
-        help_text='Height in rack units'
+        help_text=_('Height in rack units')
     )
     desc_units = models.BooleanField(
         default=False,
         verbose_name='Descending units',
-        help_text='Units are numbered top-to-bottom'
+        help_text=_('Units are numbered top-to-bottom')
     )
     outer_width = models.PositiveSmallIntegerField(
         blank=True,
         null=True,
-        help_text='Outer dimension of rack (width)'
+        help_text=_('Outer dimension of rack (width)')
     )
     outer_depth = models.PositiveSmallIntegerField(
         blank=True,
         null=True,
-        help_text='Outer dimension of rack (depth)'
+        help_text=_('Outer dimension of rack (depth)')
     )
     outer_unit = models.CharField(
         max_length=50,
         choices=RackDimensionUnitChoices,
         blank=True,
     )
-    comments = models.TextField(
-        blank=True
+    max_weight = models.PositiveIntegerField(
+        blank=True,
+        null=True,
+        help_text=_('Maximum load capacity for the rack')
+    )
+    # Stores the normalized max weight (in grams) for database ordering
+    _abs_max_weight = models.PositiveBigIntegerField(
+        blank=True,
+        null=True
+    )
+    mounting_depth = models.PositiveSmallIntegerField(
+        blank=True,
+        null=True,
+        help_text=(
+            _('Maximum depth of a mounted device, in millimeters. For four-post racks, this is the '
+              'distance between the front and rear rails.')
+        )
     )
 
     # Generic relations
@@ -184,17 +182,26 @@ class Rack(NetBoxModel):
         to='extras.ImageAttachment'
     )
 
-    clone_fields = [
+    clone_fields = (
         'site', 'location', 'tenant', 'status', 'role', 'type', 'width', 'u_height', 'desc_units', 'outer_width',
-        'outer_depth', 'outer_unit',
-    ]
+        'outer_depth', 'outer_unit', 'mounting_depth', 'weight', 'max_weight', 'weight_unit',
+    )
+    prerequisite_models = (
+        'dcim.Site',
+    )
 
     class Meta:
         ordering = ('site', 'location', '_name', 'pk')  # (site, location, name) may be non-unique
-        unique_together = (
+        constraints = (
             # Name and facility_id must be unique *only* within a Location
-            ('location', 'name'),
-            ('location', 'facility_id'),
+            models.UniqueConstraint(
+                fields=('location', 'name'),
+                name='%(app_label)s_%(class)s_unique_location_name'
+            ),
+            models.UniqueConstraint(
+                fields=('location', 'facility_id'),
+                name='%(app_label)s_%(class)s_unique_location_facility_id'
+            ),
         )
 
     def __str__(self):
@@ -218,6 +225,10 @@ class Rack(NetBoxModel):
         elif self.outer_width is None and self.outer_depth is None:
             self.outer_unit = ''
 
+        # Validate max_weight and weight_unit
+        if self.max_weight and not self.weight_unit:
+            raise ValidationError("Must specify a unit when setting a maximum weight")
+
         if self.pk:
             # Validate that Rack is tall enough to house the installed Devices
             top_device = Device.objects.filter(
@@ -240,12 +251,24 @@ class Rack(NetBoxModel):
                         'location': f"Location must be from the same site, {self.site}."
                     })
 
+    def save(self, *args, **kwargs):
+
+        # Store the given max weight (if any) in grams for use in database ordering
+        if self.max_weight and self.weight_unit:
+            self._abs_max_weight = to_grams(self.max_weight, self.weight_unit)
+        else:
+            self._abs_max_weight = None
+
+        super().save(*args, **kwargs)
+
     @property
     def units(self):
+        """
+        Return a list of unit numbers, top to bottom.
+        """
         if self.desc_units:
-            return range(1, self.u_height + 1)
-        else:
-            return reversed(range(1, self.u_height + 1))
+            return drange(decimal.Decimal(1.0), self.u_height + 1, 0.5)
+        return drange(self.u_height + decimal.Decimal(0.5), 0.5, -0.5)
 
     def get_status_color(self):
         return RackStatusChoices.colors.get(self.status)
@@ -263,12 +286,12 @@ class Rack(NetBoxModel):
             reference to the device. When False, only the bottom most unit for a device is included and that unit
             contains a height attribute for the device
         """
-
-        elevation = OrderedDict()
+        elevation = {}
         for u in self.units:
+            u_name = f'U{u}'.split('.')[0] if not u % 1 else f'U{u}'
             elevation[u] = {
                 'id': u,
-                'name': f'U{u}',
+                'name': u_name,
                 'face': face,
                 'device': None,
                 'occupied': False
@@ -278,7 +301,7 @@ class Rack(NetBoxModel):
         if self.pk:
 
             # Retrieve all devices installed within the rack
-            queryset = Device.objects.prefetch_related(
+            devices = Device.objects.prefetch_related(
                 'device_type',
                 'device_type__manufacturer',
                 'device_role'
@@ -299,9 +322,9 @@ class Rack(NetBoxModel):
             if user is not None:
                 permitted_device_ids = self.devices.restrict(user, 'view').values_list('pk', flat=True)
 
-            for device in queryset:
+            for device in devices:
                 if expand_devices:
-                    for u in range(device.position, device.position + device.device_type.u_height):
+                    for u in drange(device.position, device.position + device.device_type.u_height, 0.5):
                         if user is None or device.pk in permitted_device_ids:
                             elevation[u]['device'] = device
                         elevation[u]['occupied'] = True
@@ -310,8 +333,6 @@ class Rack(NetBoxModel):
                         elevation[device.position]['device'] = device
                     elevation[device.position]['occupied'] = True
                     elevation[device.position]['height'] = device.device_type.u_height
-                    for u in range(device.position + 1, device.position + device.device_type.u_height):
-                        elevation.pop(u, None)
 
         return [u for u in elevation.values()]
 
@@ -331,12 +352,12 @@ class Rack(NetBoxModel):
             devices = devices.exclude(pk__in=exclude)
 
         # Initialize the rack unit skeleton
-        units = list(range(1, self.u_height + 1))
+        units = list(self.units)
 
         # Remove units consumed by installed devices
         for d in devices:
             if rack_face is None or d.face == rack_face or d.device_type.is_full_depth:
-                for u in range(d.position, d.position + d.device_type.u_height):
+                for u in drange(d.position, d.position + d.device_type.u_height, 0.5):
                     try:
                         units.remove(u)
                     except ValueError:
@@ -346,7 +367,7 @@ class Rack(NetBoxModel):
         # Remove units without enough space above them to accommodate a device of the specified height
         available_units = []
         for u in units:
-            if set(range(u, u + u_height)).issubset(units):
+            if set(drange(u, u + decimal.Decimal(u_height), 0.5)).issubset(units):
                 available_units.append(u)
 
         return list(reversed(available_units))
@@ -356,9 +377,9 @@ class Rack(NetBoxModel):
         Return a dictionary mapping all reserved units within the rack to their reservation.
         """
         reserved_units = {}
-        for r in self.reservations.all():
-            for u in r.units:
-                reserved_units[u] = r
+        for reservation in self.reservations.all():
+            for u in reservation.units:
+                reserved_units[u] = reservation
         return reserved_units
 
     def get_elevation_svg(
@@ -367,9 +388,11 @@ class Rack(NetBoxModel):
             user=None,
             unit_width=None,
             unit_height=None,
-            legend_width=RACK_ELEVATION_LEGEND_WIDTH_DEFAULT,
+            legend_width=RACK_ELEVATION_DEFAULT_LEGEND_WIDTH,
+            margin_width=RACK_ELEVATION_DEFAULT_MARGIN_WIDTH,
             include_images=True,
-            base_url=None
+            base_url=None,
+            highlight_params=None
     ):
         """
         Return an SVG of the rack elevation
@@ -381,16 +404,23 @@ class Rack(NetBoxModel):
         :param unit_height: Height of each rack unit for the rendered drawing. Note this is not the total
             height of the elevation
         :param legend_width: Width of the unit legend, in pixels
+        :param margin_width: Width of the rigth-hand margin, in pixels
         :param include_images: Embed front/rear device images where available
         :param base_url: Base URL for links and images. If none, URLs will be relative.
         """
-        elevation = RackElevationSVG(self, user=user, include_images=include_images, base_url=base_url)
-        if unit_width is None or unit_height is None:
-            config = get_config()
-            unit_width = unit_width or config.RACK_ELEVATION_DEFAULT_UNIT_WIDTH
-            unit_height = unit_height or config.RACK_ELEVATION_DEFAULT_UNIT_HEIGHT
+        elevation = RackElevationSVG(
+            self,
+            unit_width=unit_width,
+            unit_height=unit_height,
+            legend_width=legend_width,
+            margin_width=margin_width,
+            user=user,
+            include_images=include_images,
+            base_url=base_url,
+            highlight_params=highlight_params
+        )
 
-        return elevation.render(face, unit_width, unit_height, legend_width)
+        return elevation.render(face)
 
     def get_0u_devices(self):
         return self.devices.filter(position=0)
@@ -401,15 +431,17 @@ class Rack(NetBoxModel):
         as utilized.
         """
         # Determine unoccupied units
-        available_units = self.get_available_units()
+        total_units = len(list(self.units))
+        available_units = self.get_available_units(u_height=0.5)
 
         # Remove reserved units
-        for u in self.get_reserved_units():
-            if u in available_units:
-                available_units.remove(u)
+        for ru in self.get_reserved_units():
+            for u in drange(ru, ru + 1, 0.5):
+                if u in available_units:
+                    available_units.remove(u)
 
-        occupied_unit_count = self.u_height - len(available_units)
-        percentage = float(occupied_unit_count) / self.u_height * 100
+        occupied_unit_count = total_units - len(available_units)
+        percentage = float(occupied_unit_count) / total_units * 100
 
         return percentage
 
@@ -422,20 +454,36 @@ class Rack(NetBoxModel):
         if not available_power_total:
             return 0
 
-        pf_powerports = PowerPort.objects.filter(
-            _link_peer_type=ContentType.objects.get_for_model(PowerFeed),
-            _link_peer_id__in=powerfeeds.values_list('id', flat=True)
+        powerports = []
+        for powerfeed in powerfeeds:
+            powerports.extend([
+                peer for peer in powerfeed.link_peers if isinstance(peer, PowerPort)
+            ])
+
+        allocated_draw = sum([
+            powerport.get_power_draw()['allocated'] for powerport in powerports
+        ])
+
+        return int(allocated_draw / available_power_total * 100)
+
+    @cached_property
+    def total_weight(self):
+        total_weight = sum(
+            device.device_type._abs_weight
+            for device in self.devices.exclude(device_type___abs_weight__isnull=True).prefetch_related('device_type')
         )
-        poweroutlets = PowerOutlet.objects.filter(power_port_id__in=pf_powerports)
-        allocated_draw_total = PowerPort.objects.filter(
-            _link_peer_type=ContentType.objects.get_for_model(PowerOutlet),
-            _link_peer_id__in=poweroutlets.values_list('id', flat=True)
-        ).aggregate(Sum('allocated_draw'))['allocated_draw__sum'] or 0
+        total_weight += sum(
+            module.module_type._abs_weight
+            for module in Module.objects.filter(device__rack=self)
+            .exclude(module_type___abs_weight__isnull=True)
+            .prefetch_related('module_type')
+        )
+        if self._abs_weight:
+            total_weight += self._abs_weight
+        return round(total_weight / 1000, 2)
 
-        return int(allocated_draw_total / available_power_total * 100)
 
-
-class RackReservation(NetBoxModel):
+class RackReservation(PrimaryModel):
     """
     One or more reserved units within a Rack.
     """
@@ -460,6 +508,11 @@ class RackReservation(NetBoxModel):
     )
     description = models.CharField(
         max_length=200
+    )
+
+    clone_fields = ('rack', 'user', 'tenant')
+    prerequisite_models = (
+        'dcim.Rack',
     )
 
     class Meta:

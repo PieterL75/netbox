@@ -22,6 +22,7 @@ REDIS = {
     'tasks': {
         'HOST': 'localhost',
         'PORT': 6379,
+        'USERNAME': '',
         'PASSWORD': '',
         'DATABASE': 0,
         'SSL': False,
@@ -29,6 +30,7 @@ REDIS = {
     'caching': {
         'HOST': 'localhost',
         'PORT': 6379,
+        'USERNAME': '',
         'PASSWORD': '',
         'DATABASE': 1,
         'SSL': False,
@@ -36,3 +38,8 @@ REDIS = {
 }
 
 SECRET_KEY = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': True
+}

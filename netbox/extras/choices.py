@@ -10,6 +10,7 @@ class CustomFieldTypeChoices(ChoiceSet):
     TYPE_TEXT = 'text'
     TYPE_LONGTEXT = 'longtext'
     TYPE_INTEGER = 'integer'
+    TYPE_DECIMAL = 'decimal'
     TYPE_BOOLEAN = 'boolean'
     TYPE_DATE = 'date'
     TYPE_URL = 'url'
@@ -23,6 +24,7 @@ class CustomFieldTypeChoices(ChoiceSet):
         (TYPE_TEXT, 'Text'),
         (TYPE_LONGTEXT, 'Text (long)'),
         (TYPE_INTEGER, 'Integer'),
+        (TYPE_DECIMAL, 'Decimal'),
         (TYPE_BOOLEAN, 'Boolean (true/false)'),
         (TYPE_DATE, 'Date'),
         (TYPE_URL, 'URL'),
@@ -44,6 +46,19 @@ class CustomFieldFilterLogicChoices(ChoiceSet):
         (FILTER_DISABLED, 'Disabled'),
         (FILTER_LOOSE, 'Loose'),
         (FILTER_EXACT, 'Exact'),
+    )
+
+
+class CustomFieldVisibilityChoices(ChoiceSet):
+
+    VISIBILITY_READ_WRITE = 'read-write'
+    VISIBILITY_READ_ONLY = 'read-only'
+    VISIBILITY_HIDDEN = 'hidden'
+
+    CHOICES = (
+        (VISIBILITY_READ_WRITE, 'Read/Write'),
+        (VISIBILITY_READ_ONLY, 'Read-only'),
+        (VISIBILITY_HIDDEN, 'Hidden'),
     )
 
 
@@ -126,17 +141,19 @@ class LogLevelChoices(ChoiceSet):
 class JobResultStatusChoices(ChoiceSet):
 
     STATUS_PENDING = 'pending'
+    STATUS_SCHEDULED = 'scheduled'
     STATUS_RUNNING = 'running'
     STATUS_COMPLETED = 'completed'
     STATUS_ERRORED = 'errored'
     STATUS_FAILED = 'failed'
 
     CHOICES = (
-        (STATUS_PENDING, 'Pending'),
-        (STATUS_RUNNING, 'Running'),
-        (STATUS_COMPLETED, 'Completed'),
-        (STATUS_ERRORED, 'Errored'),
-        (STATUS_FAILED, 'Failed'),
+        (STATUS_PENDING, 'Pending', 'cyan'),
+        (STATUS_SCHEDULED, 'Scheduled', 'gray'),
+        (STATUS_RUNNING, 'Running', 'blue'),
+        (STATUS_COMPLETED, 'Completed', 'green'),
+        (STATUS_ERRORED, 'Errored', 'red'),
+        (STATUS_FAILED, 'Failed', 'red'),
     )
 
     TERMINAL_STATE_CHOICES = (
@@ -164,4 +181,21 @@ class WebhookHttpMethodChoices(ChoiceSet):
         (METHOD_PUT, 'PUT'),
         (METHOD_PATCH, 'PATCH'),
         (METHOD_DELETE, 'DELETE'),
+    )
+
+
+#
+# Staging
+#
+
+class ChangeActionChoices(ChoiceSet):
+
+    ACTION_CREATE = 'create'
+    ACTION_UPDATE = 'update'
+    ACTION_DELETE = 'delete'
+
+    CHOICES = (
+        (ACTION_CREATE, 'Create'),
+        (ACTION_UPDATE, 'Update'),
+        (ACTION_DELETE, 'Delete'),
     )

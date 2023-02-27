@@ -7,7 +7,7 @@ from ipam.models import ASN
 from netbox.forms import NetBoxModelBulkEditForm
 from tenancy.models import Tenant
 from utilities.forms import (
-    add_blank_choice, CommentField, DynamicModelChoiceField, DynamicModelMultipleChoiceField, SmallTextarea,
+    add_blank_choice, CommentField, DatePicker, DynamicModelChoiceField, DynamicModelMultipleChoiceField, SmallTextarea,
     StaticSelect,
 )
 
@@ -20,10 +20,6 @@ __all__ = (
 
 
 class ProviderBulkEditForm(NetBoxModelBulkEditForm):
-    asn = forms.IntegerField(
-        required=False,
-        label='ASN (legacy)'
-    )
     asns = DynamicModelMultipleChoiceField(
         queryset=ASN.objects.all(),
         label=_('ASNs'),
@@ -32,33 +28,23 @@ class ProviderBulkEditForm(NetBoxModelBulkEditForm):
     account = forms.CharField(
         max_length=30,
         required=False,
-        label='Account number'
+        label=_('Account number')
     )
-    portal_url = forms.URLField(
-        required=False,
-        label='Portal'
-    )
-    noc_contact = forms.CharField(
-        required=False,
-        widget=SmallTextarea,
-        label='NOC contact'
-    )
-    admin_contact = forms.CharField(
-        required=False,
-        widget=SmallTextarea,
-        label='Admin contact'
+    description = forms.CharField(
+        max_length=200,
+        required=False
     )
     comments = CommentField(
         widget=SmallTextarea,
-        label='Comments'
+        label=_('Comments')
     )
 
     model = Provider
     fieldsets = (
-        (None, ('asn', 'asns', 'account', 'portal_url', 'noc_contact', 'admin_contact')),
+        (None, ('asns', 'account', )),
     )
     nullable_fields = (
-        'asn', 'asns', 'account', 'portal_url', 'noc_contact', 'admin_contact', 'comments',
+        'asns', 'account', 'description', 'comments',
     )
 
 
@@ -70,7 +56,7 @@ class ProviderNetworkBulkEditForm(NetBoxModelBulkEditForm):
     service_id = forms.CharField(
         max_length=100,
         required=False,
-        label='Service ID'
+        label=_('Service ID')
     )
     description = forms.CharField(
         max_length=200,
@@ -78,7 +64,7 @@ class ProviderNetworkBulkEditForm(NetBoxModelBulkEditForm):
     )
     comments = CommentField(
         widget=SmallTextarea,
-        label='Comments'
+        label=_('Comments')
     )
 
     model = ProviderNetwork
@@ -122,9 +108,17 @@ class CircuitBulkEditForm(NetBoxModelBulkEditForm):
         queryset=Tenant.objects.all(),
         required=False
     )
+    install_date = forms.DateField(
+        required=False,
+        widget=DatePicker()
+    )
+    termination_date = forms.DateField(
+        required=False,
+        widget=DatePicker()
+    )
     commit_rate = forms.IntegerField(
         required=False,
-        label='Commit rate (Kbps)'
+        label=_('Commit rate (Kbps)')
     )
     description = forms.CharField(
         max_length=100,
@@ -132,12 +126,14 @@ class CircuitBulkEditForm(NetBoxModelBulkEditForm):
     )
     comments = CommentField(
         widget=SmallTextarea,
-        label='Comments'
+        label=_('Comments')
     )
 
     model = Circuit
     fieldsets = (
-        (None, ('type', 'provider', 'status', 'tenant', 'commit_rate', 'description')),
+        ('Circuit', ('provider', 'type', 'status', 'description')),
+        ('Service Parameters', ('install_date', 'termination_date', 'commit_rate')),
+        ('Tenancy', ('tenant',)),
     )
     nullable_fields = (
         'tenant', 'commit_rate', 'description', 'comments',

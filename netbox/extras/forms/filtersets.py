@@ -3,7 +3,7 @@ from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType
 from django.utils.translation import gettext as _
 
-from dcim.models import DeviceRole, DeviceType, Platform, Region, Site, SiteGroup
+from dcim.models import DeviceRole, DeviceType, Location, Platform, Region, Site, SiteGroup
 from extras.choices import *
 from extras.models import *
 from extras.utils import FeatureQuery
@@ -15,34 +15,40 @@ from utilities.forms import (
     StaticSelect, TagFilterField,
 )
 from virtualization.models import Cluster, ClusterGroup, ClusterType
+from .mixins import SavedFiltersMixin
 
 __all__ = (
     'ConfigContextFilterForm',
     'CustomFieldFilterForm',
+    'JobResultFilterForm',
     'CustomLinkFilterForm',
     'ExportTemplateFilterForm',
     'JournalEntryFilterForm',
     'LocalConfigContextFilterForm',
     'ObjectChangeFilterForm',
+    'SavedFilterFilterForm',
     'TagFilterForm',
     'WebhookFilterForm',
 )
 
 
-class CustomFieldFilterForm(FilterForm):
+class CustomFieldFilterForm(SavedFiltersMixin, FilterForm):
     fieldsets = (
-        (None, ('q',)),
-        ('Attributes', ('type', 'content_types', 'weight', 'required')),
+        (None, ('q', 'filter_id')),
+        ('Attributes', ('type', 'content_type_id', 'group_name', 'weight', 'required', 'ui_visibility')),
     )
-    content_types = ContentTypeMultipleChoiceField(
-        queryset=ContentType.objects.all(),
-        limit_choices_to=FeatureQuery('custom_fields'),
-        required=False
+    content_type_id = ContentTypeMultipleChoiceField(
+        queryset=ContentType.objects.filter(FeatureQuery('custom_fields').get_query()),
+        required=False,
+        label=_('Object type')
     )
     type = MultipleChoiceField(
         choices=CustomFieldTypeChoices,
         required=False,
         label=_('Field type')
+    )
+    group_name = forms.CharField(
+        required=False
     )
     weight = forms.IntegerField(
         required=False
@@ -53,16 +59,81 @@ class CustomFieldFilterForm(FilterForm):
             choices=BOOLEAN_WITH_BLANK_CHOICES
         )
     )
-
-
-class CustomLinkFilterForm(FilterForm):
-    fieldsets = (
-        (None, ('q',)),
-        ('Attributes', ('content_type', 'enabled', 'new_window', 'weight')),
+    ui_visibility = forms.ChoiceField(
+        choices=add_blank_choice(CustomFieldVisibilityChoices),
+        required=False,
+        label=_('UI visibility'),
+        widget=StaticSelect()
     )
-    content_type = ContentTypeChoiceField(
-        queryset=ContentType.objects.all(),
-        limit_choices_to=FeatureQuery('custom_links'),
+
+
+class JobResultFilterForm(SavedFiltersMixin, FilterForm):
+    fieldsets = (
+        (None, ('q', 'filter_id')),
+        ('Attributes', ('obj_type', 'status')),
+        ('Creation', (
+            'created__before', 'created__after', 'scheduled__before', 'scheduled__after', 'started__before',
+            'started__after', 'completed__before', 'completed__after', 'user',
+        )),
+    )
+    obj_type = ContentTypeChoiceField(
+        label=_('Object Type'),
+        queryset=ContentType.objects.filter(FeatureQuery('job_results').get_query()),
+        required=False,
+    )
+    status = MultipleChoiceField(
+        choices=JobResultStatusChoices,
+        required=False
+    )
+    created__after = forms.DateTimeField(
+        required=False,
+        widget=DateTimePicker()
+    )
+    created__before = forms.DateTimeField(
+        required=False,
+        widget=DateTimePicker()
+    )
+    scheduled__after = forms.DateTimeField(
+        required=False,
+        widget=DateTimePicker()
+    )
+    scheduled__before = forms.DateTimeField(
+        required=False,
+        widget=DateTimePicker()
+    )
+    started__after = forms.DateTimeField(
+        required=False,
+        widget=DateTimePicker()
+    )
+    started__before = forms.DateTimeField(
+        required=False,
+        widget=DateTimePicker()
+    )
+    completed__after = forms.DateTimeField(
+        required=False,
+        widget=DateTimePicker()
+    )
+    completed__before = forms.DateTimeField(
+        required=False,
+        widget=DateTimePicker()
+    )
+    user = DynamicModelMultipleChoiceField(
+        queryset=User.objects.all(),
+        required=False,
+        label=_('User'),
+        widget=APISelectMultiple(
+            api_url='/api/users/users/',
+        )
+    )
+
+
+class CustomLinkFilterForm(SavedFiltersMixin, FilterForm):
+    fieldsets = (
+        (None, ('q', 'filter_id')),
+        ('Attributes', ('content_types', 'enabled', 'new_window', 'weight')),
+    )
+    content_types = ContentTypeMultipleChoiceField(
+        queryset=ContentType.objects.filter(FeatureQuery('custom_links').get_query()),
         required=False
     )
     enabled = forms.NullBooleanField(
@@ -82,14 +153,13 @@ class CustomLinkFilterForm(FilterForm):
     )
 
 
-class ExportTemplateFilterForm(FilterForm):
+class ExportTemplateFilterForm(SavedFiltersMixin, FilterForm):
     fieldsets = (
-        (None, ('q',)),
-        ('Attributes', ('content_type', 'mime_type', 'file_extension', 'as_attachment')),
+        (None, ('q', 'filter_id')),
+        ('Attributes', ('content_types', 'mime_type', 'file_extension', 'as_attachment')),
     )
-    content_type = ContentTypeChoiceField(
-        queryset=ContentType.objects.all(),
-        limit_choices_to=FeatureQuery('export_templates'),
+    content_types = ContentTypeMultipleChoiceField(
+        queryset=ContentType.objects.filter(FeatureQuery('export_templates').get_query()),
         required=False
     )
     mime_type = forms.CharField(
@@ -107,16 +177,42 @@ class ExportTemplateFilterForm(FilterForm):
     )
 
 
-class WebhookFilterForm(FilterForm):
+class SavedFilterFilterForm(SavedFiltersMixin, FilterForm):
     fieldsets = (
-        (None, ('q',)),
-        ('Attributes', ('content_types', 'http_method', 'enabled')),
-        ('Events', ('type_create', 'type_update', 'type_delete')),
+        (None, ('q', 'filter_id')),
+        ('Attributes', ('content_types', 'enabled', 'shared', 'weight')),
     )
     content_types = ContentTypeMultipleChoiceField(
-        queryset=ContentType.objects.all(),
-        limit_choices_to=FeatureQuery('webhooks'),
+        queryset=ContentType.objects.filter(FeatureQuery('export_templates').get_query()),
         required=False
+    )
+    enabled = forms.NullBooleanField(
+        required=False,
+        widget=StaticSelect(
+            choices=BOOLEAN_WITH_BLANK_CHOICES
+        )
+    )
+    shared = forms.NullBooleanField(
+        required=False,
+        widget=StaticSelect(
+            choices=BOOLEAN_WITH_BLANK_CHOICES
+        )
+    )
+    weight = forms.IntegerField(
+        required=False
+    )
+
+
+class WebhookFilterForm(SavedFiltersMixin, FilterForm):
+    fieldsets = (
+        (None, ('q', 'filter_id')),
+        ('Attributes', ('content_type_id', 'http_method', 'enabled')),
+        ('Events', ('type_create', 'type_update', 'type_delete')),
+    )
+    content_type_id = ContentTypeMultipleChoiceField(
+        queryset=ContentType.objects.filter(FeatureQuery('webhooks').get_query()),
+        required=False,
+        label=_('Object type')
     )
     http_method = MultipleChoiceField(
         choices=WebhookHttpMethodChoices,
@@ -149,7 +245,7 @@ class WebhookFilterForm(FilterForm):
     )
 
 
-class TagFilterForm(FilterForm):
+class TagFilterForm(SavedFiltersMixin, FilterForm):
     model = Tag
     content_type_id = ContentTypeMultipleChoiceField(
         queryset=ContentType.objects.filter(FeatureQuery('tags').get_query()),
@@ -158,10 +254,10 @@ class TagFilterForm(FilterForm):
     )
 
 
-class ConfigContextFilterForm(FilterForm):
+class ConfigContextFilterForm(SavedFiltersMixin, FilterForm):
     fieldsets = (
-        (None, ('q', 'tag_id')),
-        ('Location', ('region_id', 'site_group_id', 'site_id')),
+        (None, ('q', 'filter_id', 'tag_id')),
+        ('Location', ('region_id', 'site_group_id', 'site_id', 'location_id')),
         ('Device', ('device_type_id', 'platform_id', 'role_id')),
         ('Cluster', ('cluster_type_id', 'cluster_group_id', 'cluster_id')),
         ('Tenant', ('tenant_group_id', 'tenant_id'))
@@ -180,6 +276,11 @@ class ConfigContextFilterForm(FilterForm):
         queryset=Site.objects.all(),
         required=False,
         label=_('Sites')
+    )
+    location_id = DynamicModelMultipleChoiceField(
+        queryset=Location.objects.all(),
+        required=False,
+        label=_('Locations')
     )
     device_type_id = DynamicModelMultipleChoiceField(
         queryset=DeviceType.objects.all(),
@@ -242,7 +343,7 @@ class LocalConfigContextFilterForm(forms.Form):
 class JournalEntryFilterForm(NetBoxModelFilterSetForm):
     model = JournalEntry
     fieldsets = (
-        (None, ('q', 'tag')),
+        (None, ('q', 'filter_id', 'tag')),
         ('Creation', ('created_before', 'created_after', 'created_by_id')),
         ('Attributes', ('assigned_object_type_id', 'kind'))
     )
@@ -280,10 +381,10 @@ class JournalEntryFilterForm(NetBoxModelFilterSetForm):
     tag = TagFilterField(model)
 
 
-class ObjectChangeFilterForm(FilterForm):
+class ObjectChangeFilterForm(SavedFiltersMixin, FilterForm):
     model = ObjectChange
     fieldsets = (
-        (None, ('q',)),
+        (None, ('q', 'filter_id')),
         ('Time', ('time_before', 'time_after')),
         ('Attributes', ('action', 'user_id', 'changed_object_type_id')),
     )

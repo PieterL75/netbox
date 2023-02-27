@@ -1,17 +1,18 @@
 from django import forms
+from django.contrib.contenttypes.models import ContentType
 from django.utils.translation import gettext as _
 
-from dcim.models import Location, Rack, Region, Site, SiteGroup
+from dcim.models import Location, Rack, Region, Site, SiteGroup, Device
 from ipam.choices import *
 from ipam.constants import *
 from ipam.models import *
-from ipam.models import ASN
 from netbox.forms import NetBoxModelFilterSetForm
 from tenancy.forms import TenancyFilterForm
 from utilities.forms import (
-    add_blank_choice, DynamicModelChoiceField, DynamicModelMultipleChoiceField, MultipleChoiceField, StaticSelect,
-    TagFilterField, BOOLEAN_WITH_BLANK_CHOICES,
+    add_blank_choice, ContentTypeMultipleChoiceField, DynamicModelChoiceField, DynamicModelMultipleChoiceField,
+    MultipleChoiceField, StaticSelect, TagFilterField, BOOLEAN_WITH_BLANK_CHOICES,
 )
+from virtualization.models import VirtualMachine
 
 __all__ = (
     'AggregateFilterForm',
@@ -19,6 +20,8 @@ __all__ = (
     'FHRPGroupFilterForm',
     'IPAddressFilterForm',
     'IPRangeFilterForm',
+    'L2VPNFilterForm',
+    'L2VPNTerminationFilterForm',
     'PrefixFilterForm',
     'RIRFilterForm',
     'RoleFilterForm',
@@ -42,7 +45,7 @@ IPADDRESS_MASK_LENGTH_CHOICES = add_blank_choice([
 class VRFFilterForm(TenancyFilterForm, NetBoxModelFilterSetForm):
     model = VRF
     fieldsets = (
-        (None, ('q', 'tag')),
+        (None, ('q', 'filter_id', 'tag')),
         ('Route Targets', ('import_target_id', 'export_target_id')),
         ('Tenant', ('tenant_group_id', 'tenant_id')),
     )
@@ -62,7 +65,7 @@ class VRFFilterForm(TenancyFilterForm, NetBoxModelFilterSetForm):
 class RouteTargetFilterForm(TenancyFilterForm, NetBoxModelFilterSetForm):
     model = RouteTarget
     fieldsets = (
-        (None, ('q', 'tag')),
+        (None, ('q', 'filter_id', 'tag')),
         ('VRF', ('importing_vrf_id', 'exporting_vrf_id')),
         ('Tenant', ('tenant_group_id', 'tenant_id')),
     )
@@ -94,7 +97,7 @@ class RIRFilterForm(NetBoxModelFilterSetForm):
 class AggregateFilterForm(TenancyFilterForm, NetBoxModelFilterSetForm):
     model = Aggregate
     fieldsets = (
-        (None, ('q', 'tag')),
+        (None, ('q', 'filter_id', 'tag')),
         ('Attributes', ('family', 'rir_id')),
         ('Tenant', ('tenant_group_id', 'tenant_id')),
     )
@@ -115,7 +118,7 @@ class AggregateFilterForm(TenancyFilterForm, NetBoxModelFilterSetForm):
 class ASNFilterForm(TenancyFilterForm, NetBoxModelFilterSetForm):
     model = ASN
     fieldsets = (
-        (None, ('q', 'tag')),
+        (None, ('q', 'filter_id', 'tag')),
         ('Assignment', ('rir_id', 'site_id')),
         ('Tenant', ('tenant_group_id', 'tenant_id')),
     )
@@ -140,7 +143,7 @@ class RoleFilterForm(NetBoxModelFilterSetForm):
 class PrefixFilterForm(TenancyFilterForm, NetBoxModelFilterSetForm):
     model = Prefix
     fieldsets = (
-        (None, ('q', 'tag')),
+        (None, ('q', 'filter_id', 'tag')),
         ('Addressing', ('within_include', 'family', 'status', 'role_id', 'mask_length', 'is_pool', 'mark_utilized')),
         ('VRF', ('vrf_id', 'present_in_vrf_id')),
         ('Location', ('region_id', 'site_group_id', 'site_id')),
@@ -229,7 +232,7 @@ class PrefixFilterForm(TenancyFilterForm, NetBoxModelFilterSetForm):
 class IPRangeFilterForm(TenancyFilterForm, NetBoxModelFilterSetForm):
     model = IPRange
     fieldsets = (
-        (None, ('q', 'tag')),
+        (None, ('q', 'filter_id', 'tag')),
         ('Attriubtes', ('family', 'vrf_id', 'status', 'role_id')),
         ('Tenant', ('tenant_group_id', 'tenant_id')),
     )
@@ -246,7 +249,7 @@ class IPRangeFilterForm(TenancyFilterForm, NetBoxModelFilterSetForm):
         null_option='Global'
     )
     status = MultipleChoiceField(
-        choices=PrefixStatusChoices,
+        choices=IPRangeStatusChoices,
         required=False
     )
     role_id = DynamicModelMultipleChoiceField(
@@ -261,10 +264,11 @@ class IPRangeFilterForm(TenancyFilterForm, NetBoxModelFilterSetForm):
 class IPAddressFilterForm(TenancyFilterForm, NetBoxModelFilterSetForm):
     model = IPAddress
     fieldsets = (
-        (None, ('q', 'tag')),
+        (None, ('q', 'filter_id', 'tag')),
         ('Attributes', ('parent', 'family', 'status', 'role', 'mask_length', 'assigned_to_interface')),
         ('VRF', ('vrf_id', 'present_in_vrf_id')),
         ('Tenant', ('tenant_group_id', 'tenant_id')),
+        ('Device/VM', ('device_id', 'virtual_machine_id')),
     )
     parent = forms.CharField(
         required=False,
@@ -298,6 +302,16 @@ class IPAddressFilterForm(TenancyFilterForm, NetBoxModelFilterSetForm):
         required=False,
         label=_('Present in VRF')
     )
+    device_id = DynamicModelMultipleChoiceField(
+        queryset=Device.objects.all(),
+        required=False,
+        label=_('Assigned Device'),
+    )
+    virtual_machine_id = DynamicModelMultipleChoiceField(
+        queryset=VirtualMachine.objects.all(),
+        required=False,
+        label=_('Assigned VM'),
+    )
     status = MultipleChoiceField(
         choices=IPAddressStatusChoices,
         required=False
@@ -319,9 +333,12 @@ class IPAddressFilterForm(TenancyFilterForm, NetBoxModelFilterSetForm):
 class FHRPGroupFilterForm(NetBoxModelFilterSetForm):
     model = FHRPGroup
     fieldsets = (
-        (None, ('q', 'tag')),
-        ('Attributes', ('protocol', 'group_id')),
+        (None, ('q', 'filter_id', 'tag')),
+        ('Attributes', ('name', 'protocol', 'group_id')),
         ('Authentication', ('auth_type', 'auth_key')),
+    )
+    name = forms.CharField(
+        required=False
     )
     protocol = MultipleChoiceField(
         choices=FHRPGroupProtocolChoices,
@@ -346,7 +363,7 @@ class FHRPGroupFilterForm(NetBoxModelFilterSetForm):
 
 class VLANGroupFilterForm(NetBoxModelFilterSetForm):
     fieldsets = (
-        (None, ('q', 'tag')),
+        (None, ('q', 'filter_id', 'tag')),
         ('Location', ('region', 'sitegroup', 'site', 'location', 'rack')),
         ('VLAN ID', ('min_vid', 'max_vid')),
     )
@@ -380,13 +397,13 @@ class VLANGroupFilterForm(NetBoxModelFilterSetForm):
         required=False,
         min_value=VLAN_VID_MIN,
         max_value=VLAN_VID_MAX,
-        label='Minimum VID'
+        label=_('Minimum VID')
     )
     max_vid = forms.IntegerField(
         required=False,
         min_value=VLAN_VID_MIN,
         max_value=VLAN_VID_MAX,
-        label='Maximum VID'
+        label=_('Maximum VID')
     )
     tag = TagFilterField(model)
 
@@ -394,9 +411,9 @@ class VLANGroupFilterForm(NetBoxModelFilterSetForm):
 class VLANFilterForm(TenancyFilterForm, NetBoxModelFilterSetForm):
     model = VLAN
     fieldsets = (
-        (None, ('q', 'tag')),
+        (None, ('q', 'filter_id', 'tag')),
         ('Location', ('region_id', 'site_group_id', 'site_id')),
-        ('Attributes', ('group_id', 'status', 'role_id', 'vid')),
+        ('Attributes', ('group_id', 'status', 'role_id', 'vid', 'l2vpn_id')),
         ('Tenant', ('tenant_group_id', 'tenant_id')),
     )
     region_id = DynamicModelMultipleChoiceField(
@@ -441,13 +458,18 @@ class VLANFilterForm(TenancyFilterForm, NetBoxModelFilterSetForm):
         required=False,
         label='VLAN ID'
     )
+    l2vpn_id = DynamicModelMultipleChoiceField(
+        queryset=L2VPN.objects.all(),
+        required=False,
+        label=_('L2VPN')
+    )
     tag = TagFilterField(model)
 
 
 class ServiceTemplateFilterForm(NetBoxModelFilterSetForm):
     model = ServiceTemplate
     fieldsets = (
-        (None, ('q', 'tag')),
+        (None, ('q', 'filter_id', 'tag')),
         ('Attributes', ('protocol', 'port')),
     )
     protocol = forms.ChoiceField(
@@ -463,3 +485,91 @@ class ServiceTemplateFilterForm(NetBoxModelFilterSetForm):
 
 class ServiceFilterForm(ServiceTemplateFilterForm):
     model = Service
+    tag = TagFilterField(model)
+
+
+class L2VPNFilterForm(TenancyFilterForm, NetBoxModelFilterSetForm):
+    model = L2VPN
+    fieldsets = (
+        (None, ('q', 'filter_id', 'tag')),
+        ('Attributes', ('type', 'import_target_id', 'export_target_id')),
+        ('Tenant', ('tenant_group_id', 'tenant_id')),
+    )
+    type = forms.ChoiceField(
+        choices=add_blank_choice(L2VPNTypeChoices),
+        required=False,
+        widget=StaticSelect()
+    )
+    import_target_id = DynamicModelMultipleChoiceField(
+        queryset=RouteTarget.objects.all(),
+        required=False,
+        label=_('Import targets')
+    )
+    export_target_id = DynamicModelMultipleChoiceField(
+        queryset=RouteTarget.objects.all(),
+        required=False,
+        label=_('Export targets')
+    )
+    tag = TagFilterField(model)
+
+
+class L2VPNTerminationFilterForm(NetBoxModelFilterSetForm):
+    model = L2VPNTermination
+    fieldsets = (
+        (None, ('filter_id', 'l2vpn_id',)),
+        ('Assigned Object', (
+            'assigned_object_type_id', 'region_id', 'site_id', 'device_id', 'virtual_machine_id', 'vlan_id',
+        )),
+    )
+    l2vpn_id = DynamicModelChoiceField(
+        queryset=L2VPN.objects.all(),
+        required=False,
+        label='L2VPN'
+    )
+    assigned_object_type_id = ContentTypeMultipleChoiceField(
+        queryset=ContentType.objects.filter(L2VPN_ASSIGNMENT_MODELS),
+        required=False,
+        label=_('Assigned Object Type'),
+        limit_choices_to=L2VPN_ASSIGNMENT_MODELS
+    )
+    region_id = DynamicModelMultipleChoiceField(
+        queryset=Region.objects.all(),
+        required=False,
+        label=_('Region')
+    )
+    site_id = DynamicModelMultipleChoiceField(
+        queryset=Site.objects.all(),
+        required=False,
+        null_option='None',
+        query_params={
+            'region_id': '$region_id'
+        },
+        label=_('Site')
+    )
+    device_id = DynamicModelMultipleChoiceField(
+        queryset=Device.objects.all(),
+        required=False,
+        null_option='None',
+        query_params={
+            'site_id': '$site_id'
+        },
+        label=_('Device')
+    )
+    vlan_id = DynamicModelMultipleChoiceField(
+        queryset=VLAN.objects.all(),
+        required=False,
+        null_option='None',
+        query_params={
+            'site_id': '$site_id'
+        },
+        label=_('VLAN')
+    )
+    virtual_machine_id = DynamicModelMultipleChoiceField(
+        queryset=VirtualMachine.objects.all(),
+        required=False,
+        null_option='None',
+        query_params={
+            'site_id': '$site_id'
+        },
+        label=_('Virtual Machine')
+    )

@@ -1,5 +1,6 @@
 import django_tables2 as tables
 from django.conf import settings
+from django.utils.translation import gettext as _
 
 from extras.models import *
 from netbox.tables import NetBoxTable, columns
@@ -10,17 +11,15 @@ __all__ = (
     'CustomFieldTable',
     'CustomLinkTable',
     'ExportTemplateTable',
+    'JobResultTable',
     'JournalEntryTable',
     'ObjectChangeTable',
+    'SavedFilterTable',
     'TaggedItemTable',
     'TagTable',
     'WebhookTable',
 )
 
-
-#
-# Custom fields
-#
 
 class CustomFieldTable(NetBoxTable):
     name = tables.Column(
@@ -28,62 +27,99 @@ class CustomFieldTable(NetBoxTable):
     )
     content_types = columns.ContentTypesColumn()
     required = columns.BooleanColumn()
+    ui_visibility = columns.ChoiceFieldColumn(verbose_name="UI visibility")
 
     class Meta(NetBoxTable.Meta):
         model = CustomField
         fields = (
-            'pk', 'id', 'name', 'content_types', 'label', 'type', 'required', 'weight', 'default',
-            'description', 'filter_logic', 'choices', 'created', 'last_updated',
+            'pk', 'id', 'name', 'content_types', 'label', 'type', 'group_name', 'required', 'default', 'description',
+            'search_weight', 'filter_logic', 'ui_visibility', 'weight', 'choices', 'created', 'last_updated',
         )
-        default_columns = ('pk', 'name', 'content_types', 'label', 'type', 'required', 'description')
+        default_columns = ('pk', 'name', 'content_types', 'label', 'group_name', 'type', 'required', 'description')
 
 
-#
-# Custom links
-#
+class JobResultTable(NetBoxTable):
+    name = tables.Column(
+        linkify=True
+    )
+    obj_type = columns.ContentTypeColumn(
+        verbose_name=_('Type')
+    )
+    status = columns.ChoiceFieldColumn()
+    created = columns.DateTimeColumn()
+    scheduled = columns.DateTimeColumn()
+    interval = columns.DurationColumn()
+    started = columns.DateTimeColumn()
+    completed = columns.DateTimeColumn()
+    actions = columns.ActionsColumn(
+        actions=('delete',)
+    )
+
+    class Meta(NetBoxTable.Meta):
+        model = JobResult
+        fields = (
+            'pk', 'id', 'obj_type', 'name', 'status', 'created', 'scheduled', 'interval', 'started', 'completed',
+            'user', 'job_id',
+        )
+        default_columns = (
+            'pk', 'id', 'obj_type', 'name', 'status', 'created', 'scheduled', 'interval', 'started', 'completed',
+            'user',
+        )
+
 
 class CustomLinkTable(NetBoxTable):
     name = tables.Column(
         linkify=True
     )
-    content_type = columns.ContentTypeColumn()
+    content_types = columns.ContentTypesColumn()
     enabled = columns.BooleanColumn()
     new_window = columns.BooleanColumn()
 
     class Meta(NetBoxTable.Meta):
         model = CustomLink
         fields = (
-            'pk', 'id', 'name', 'content_type', 'enabled', 'link_text', 'link_url', 'weight', 'group_name',
+            'pk', 'id', 'name', 'content_types', 'enabled', 'link_text', 'link_url', 'weight', 'group_name',
             'button_class', 'new_window', 'created', 'last_updated',
         )
-        default_columns = ('pk', 'name', 'content_type', 'enabled', 'group_name', 'button_class', 'new_window')
+        default_columns = ('pk', 'name', 'content_types', 'enabled', 'group_name', 'button_class', 'new_window')
 
-
-#
-# Export templates
-#
 
 class ExportTemplateTable(NetBoxTable):
     name = tables.Column(
         linkify=True
     )
-    content_type = columns.ContentTypeColumn()
+    content_types = columns.ContentTypesColumn()
     as_attachment = columns.BooleanColumn()
 
     class Meta(NetBoxTable.Meta):
         model = ExportTemplate
         fields = (
-            'pk', 'id', 'name', 'content_type', 'description', 'mime_type', 'file_extension', 'as_attachment',
+            'pk', 'id', 'name', 'content_types', 'description', 'mime_type', 'file_extension', 'as_attachment',
             'created', 'last_updated',
         )
         default_columns = (
-            'pk', 'name', 'content_type', 'description', 'mime_type', 'file_extension', 'as_attachment',
+            'pk', 'name', 'content_types', 'description', 'mime_type', 'file_extension', 'as_attachment',
         )
 
 
-#
-# Webhooks
-#
+class SavedFilterTable(NetBoxTable):
+    name = tables.Column(
+        linkify=True
+    )
+    content_types = columns.ContentTypesColumn()
+    enabled = columns.BooleanColumn()
+    shared = columns.BooleanColumn()
+
+    class Meta(NetBoxTable.Meta):
+        model = SavedFilter
+        fields = (
+            'pk', 'id', 'name', 'slug', 'content_types', 'description', 'user', 'weight', 'enabled', 'shared',
+            'created', 'last_updated',
+        )
+        default_columns = (
+            'pk', 'name', 'content_types', 'user', 'description', 'enabled', 'shared',
+        )
+
 
 class WebhookTable(NetBoxTable):
     name = tables.Column(
@@ -115,10 +151,6 @@ class WebhookTable(NetBoxTable):
             'payload_url',
         )
 
-
-#
-# Tags
-#
 
 class TagTable(NetBoxTable):
     name = tables.Column(
@@ -166,8 +198,9 @@ class ConfigContextTable(NetBoxTable):
     class Meta(NetBoxTable.Meta):
         model = ConfigContext
         fields = (
-            'pk', 'id', 'name', 'weight', 'is_active', 'description', 'regions', 'sites', 'roles', 'platforms',
-            'cluster_types', 'cluster_groups', 'clusters', 'tenant_groups', 'tenants', 'created', 'last_updated',
+            'pk', 'id', 'name', 'weight', 'is_active', 'description', 'regions', 'sites', 'locations', 'roles',
+            'platforms', 'cluster_types', 'cluster_groups', 'clusters', 'tenant_groups', 'tenants', 'created',
+            'last_updated',
         )
         default_columns = ('pk', 'name', 'weight', 'is_active', 'description')
 
@@ -181,6 +214,7 @@ class ObjectChangeTable(NetBoxTable):
         verbose_name='Username'
     )
     full_name = tables.TemplateColumn(
+        accessor=tables.A('user'),
         template_code=OBJECTCHANGE_FULL_NAME,
         verbose_name='Full Name',
         orderable=False
@@ -190,8 +224,10 @@ class ObjectChangeTable(NetBoxTable):
         verbose_name='Type'
     )
     object_repr = tables.TemplateColumn(
+        accessor=tables.A('changed_object'),
         template_code=OBJECTCHANGE_OBJECT,
-        verbose_name='Object'
+        verbose_name='Object',
+        orderable=False
     )
     request_id = tables.TemplateColumn(
         template_code=OBJECTCHANGE_REQUEST_ID,

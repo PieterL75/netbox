@@ -1,7 +1,9 @@
 import django_tables2 as tables
-
 from dcim.models import PowerFeed, PowerPanel
+from tenancy.tables import ContactsColumnMixin
+
 from netbox.tables import NetBoxTable, columns
+
 from .devices import CableTerminationTable
 
 __all__ = (
@@ -14,11 +16,14 @@ __all__ = (
 # Power panels
 #
 
-class PowerPanelTable(NetBoxTable):
+class PowerPanelTable(ContactsColumnMixin, NetBoxTable):
     name = tables.Column(
         linkify=True
     )
     site = tables.Column(
+        linkify=True
+    )
+    location = tables.Column(
         linkify=True
     )
     powerfeed_count = columns.LinkedCountColumn(
@@ -26,16 +31,17 @@ class PowerPanelTable(NetBoxTable):
         url_params={'power_panel_id': 'pk'},
         verbose_name='Feeds'
     )
-    contacts = columns.ManyToManyColumn(
-        linkify_item=True
-    )
+    comments = columns.MarkdownColumn()
     tags = columns.TagColumn(
         url_name='dcim:powerpanel_list'
     )
 
     class Meta(NetBoxTable.Meta):
         model = PowerPanel
-        fields = ('pk', 'id', 'name', 'site', 'location', 'powerfeed_count', 'contacts', 'tags', 'created', 'last_updated',)
+        fields = (
+            'pk', 'id', 'name', 'site', 'location', 'powerfeed_count', 'contacts', 'description', 'comments', 'tags',
+            'created', 'last_updated',
+        )
         default_columns = ('pk', 'name', 'site', 'location', 'powerfeed_count')
 
 
@@ -72,8 +78,8 @@ class PowerFeedTable(CableTerminationTable):
         model = PowerFeed
         fields = (
             'pk', 'id', 'name', 'power_panel', 'rack', 'status', 'type', 'supply', 'voltage', 'amperage', 'phase',
-            'max_utilization', 'mark_connected', 'cable', 'cable_color', 'link_peer', 'connection', 'available_power',
-            'comments', 'tags', 'created', 'last_updated',
+            'max_utilization', 'mark_connected', 'cable', 'cable_color', 'link_peer', 'available_power',
+            'description', 'comments', 'tags', 'created', 'last_updated',
         )
         default_columns = (
             'pk', 'name', 'power_panel', 'rack', 'status', 'type', 'supply', 'voltage', 'amperage', 'phase', 'cable',

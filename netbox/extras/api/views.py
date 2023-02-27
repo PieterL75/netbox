@@ -99,6 +99,17 @@ class ExportTemplateViewSet(NetBoxModelViewSet):
 
 
 #
+# Saved filters
+#
+
+class SavedFilterViewSet(NetBoxModelViewSet):
+    metadata_class = ContentTypeMetadata
+    queryset = SavedFilter.objects.all()
+    serializer_class = serializers.SavedFilterSerializer
+    filterset_class = filtersets.SavedFilterFilterSet
+
+
+#
 # Tags
 #
 
@@ -138,7 +149,7 @@ class JournalEntryViewSet(NetBoxModelViewSet):
 
 class ConfigContextViewSet(NetBoxModelViewSet):
     queryset = ConfigContext.objects.prefetch_related(
-        'regions', 'site_groups', 'sites', 'roles', 'platforms', 'tenant_groups', 'tenants',
+        'regions', 'site_groups', 'sites', 'locations', 'roles', 'platforms', 'tenant_groups', 'tenants',
     )
     serializer_class = serializers.ConfigContextSerializer
     filterset_class = filtersets.ConfigContextFilterSet
@@ -159,7 +170,7 @@ class ReportViewSet(ViewSet):
         # Read the PK as "<module>.<report>"
         if '.' not in pk:
             raise Http404
-        module_name, report_name = pk.split('.', 1)
+        module_name, report_name = pk.split('.', maxsplit=1)
 
         # Raise a 404 on an invalid Report module/name
         report = get_report(module_name, report_name)
@@ -183,8 +194,8 @@ class ReportViewSet(ViewSet):
         }
 
         # Iterate through all available Reports.
-        for module_name, reports in get_reports():
-            for report in reports:
+        for module_name, reports in get_reports().items():
+            for report in reports.values():
 
                 # Attach the relevant JobResult (if any) to each Report.
                 report.result = results.get(report.full_name, None)
@@ -231,19 +242,24 @@ class ReportViewSet(ViewSet):
 
         # Retrieve and run the Report. This will create a new JobResult.
         report = self._retrieve_report(pk)
-        report_content_type = ContentType.objects.get(app_label='extras', model='report')
-        job_result = JobResult.enqueue_job(
-            run_report,
-            report.full_name,
-            report_content_type,
-            request.user,
-            job_timeout=report.job_timeout
-        )
-        report.result = job_result
+        input_serializer = serializers.ReportInputSerializer(data=request.data)
 
-        serializer = serializers.ReportDetailSerializer(report, context={'request': request})
+        if input_serializer.is_valid():
+            job_result = JobResult.enqueue_job(
+                run_report,
+                name=report.full_name,
+                obj_type=ContentType.objects.get_for_model(Report),
+                user=request.user,
+                job_timeout=report.job_timeout,
+                schedule_at=input_serializer.validated_data.get('schedule_at'),
+                interval=input_serializer.validated_data.get('interval')
+            )
+            report.result = job_result
 
-        return Response(serializer.data)
+            serializer = serializers.ReportDetailSerializer(report, context={'request': request})
+
+            return Response(serializer.data)
+        return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 #
@@ -257,7 +273,7 @@ class ScriptViewSet(ViewSet):
     lookup_value_regex = '[^/]+'  # Allow dots
 
     def _get_script(self, pk):
-        module_name, script_name = pk.split('.')
+        module_name, script_name = pk.split('.', maxsplit=1)
         script = get_script(module_name, script_name)
         if script is None:
             raise Http404
@@ -302,6 +318,10 @@ class ScriptViewSet(ViewSet):
         """
         Run a Script identified as "<module>.<script>" and return the pending JobResult as the result
         """
+
+        if not request.user.has_perm('extras.run_script'):
+            raise PermissionDenied("This user does not have permission to run scripts.")
+
         script = self._get_script(pk)()
         input_serializer = serializers.ScriptInputSerializer(data=request.data)
 
@@ -310,19 +330,17 @@ class ScriptViewSet(ViewSet):
             raise RQWorkerNotRunningException()
 
         if input_serializer.is_valid():
-            data = input_serializer.data['data']
-            commit = input_serializer.data['commit']
-
-            script_content_type = ContentType.objects.get(app_label='extras', model='script')
             job_result = JobResult.enqueue_job(
                 run_script,
-                script.full_name,
-                script_content_type,
-                request.user,
-                data=data,
+                name=script.full_name,
+                obj_type=ContentType.objects.get_for_model(Script),
+                user=request.user,
+                data=input_serializer.data['data'],
                 request=copy_safe_request(request),
-                commit=commit,
+                commit=input_serializer.data['commit'],
                 job_timeout=script.job_timeout,
+                schedule_at=input_serializer.validated_data.get('schedule_at'),
+                interval=input_serializer.validated_data.get('interval')
             )
             script.result = job_result
             serializer = serializers.ScriptDetailSerializer(script, context={'request': request})

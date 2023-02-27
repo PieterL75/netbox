@@ -4,13 +4,15 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.db import transaction
 from django.db.models import ProtectedError
-from django.shortcuts import get_object_or_404
+from django.http import Http404
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
 from extras.models import ExportTemplate
 from netbox.api.exceptions import SerializerNotFound
+from netbox.constants import NESTED_SERIALIZER_PREFIX
 from utilities.api import get_serializer_for_model
+from utilities.exceptions import AbortRequest
 from .mixins import *
 
 __all__ = (
@@ -60,7 +62,7 @@ class NetBoxModelViewSet(BulkUpdateModelMixin, BulkDestroyModelMixin, ObjectVali
         if self.brief:
             logger.debug("Request is for 'brief' format; initializing nested serializer")
             try:
-                serializer = get_serializer_for_model(self.queryset.model, prefix='Nested')
+                serializer = get_serializer_for_model(self.queryset.model, prefix=NESTED_SERIALIZER_PREFIX)
                 logger.debug(f"Using serializer {serializer}")
                 return serializer
             except SerializerNotFound:
@@ -125,14 +127,22 @@ class NetBoxModelViewSet(BulkUpdateModelMixin, BulkDestroyModelMixin, ObjectVali
                 *args,
                 **kwargs
             )
+        except AbortRequest as e:
+            logger.debug(e.message)
+            return self.finalize_response(
+                request,
+                Response({'detail': e.message}, status=400),
+                *args,
+                **kwargs
+            )
 
     def list(self, request, *args, **kwargs):
-        """
-        Overrides ListModelMixin to allow processing ExportTemplates.
-        """
+        # Overrides ListModelMixin to allow processing ExportTemplates.
         if 'export' in request.GET:
             content_type = ContentType.objects.get_for_model(self.get_serializer_class().Meta.model)
-            et = get_object_or_404(ExportTemplate, content_type=content_type, name=request.GET['export'])
+            et = ExportTemplate.objects.filter(content_types=content_type, name=request.GET['export']).first()
+            if et is None:
+                raise Http404
             queryset = self.filter_queryset(self.get_queryset())
             return et.render_to_response(queryset)
 

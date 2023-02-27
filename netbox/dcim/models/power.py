@@ -3,12 +3,13 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.urls import reverse
+from django.utils.translation import gettext as _
 
 from dcim.choices import *
-from dcim.constants import *
-from netbox.models import NetBoxModel
+from netbox.config import ConfigItem
+from netbox.models import PrimaryModel
 from utilities.validators import ExclusionValidator
-from .device_components import LinkTermination, PathEndpoint
+from .device_components import CabledObjectModel, PathEndpoint
 
 __all__ = (
     'PowerFeed',
@@ -20,7 +21,7 @@ __all__ = (
 # Power
 #
 
-class PowerPanel(NetBoxModel):
+class PowerPanel(PrimaryModel):
     """
     A distribution point for electrical power; e.g. a data center RPP.
     """
@@ -46,9 +47,18 @@ class PowerPanel(NetBoxModel):
         to='extras.ImageAttachment'
     )
 
+    prerequisite_models = (
+        'dcim.Site',
+    )
+
     class Meta:
         ordering = ['site', 'name']
-        unique_together = ['site', 'name']
+        constraints = (
+            models.UniqueConstraint(
+                fields=('site', 'name'),
+                name='%(app_label)s_%(class)s_unique_site_name'
+            ),
+        )
 
     def __str__(self):
         return self.name
@@ -66,7 +76,7 @@ class PowerPanel(NetBoxModel):
             )
 
 
-class PowerFeed(NetBoxModel, PathEndpoint, LinkTermination):
+class PowerFeed(PrimaryModel, PathEndpoint, CabledObjectModel):
     """
     An electrical circuit delivered from a PowerPanel.
     """
@@ -105,34 +115,39 @@ class PowerFeed(NetBoxModel, PathEndpoint, LinkTermination):
         default=PowerFeedPhaseChoices.PHASE_SINGLE
     )
     voltage = models.SmallIntegerField(
-        default=POWERFEED_VOLTAGE_DEFAULT,
+        default=ConfigItem('POWERFEED_DEFAULT_VOLTAGE'),
         validators=[ExclusionValidator([0])]
     )
     amperage = models.PositiveSmallIntegerField(
         validators=[MinValueValidator(1)],
-        default=POWERFEED_AMPERAGE_DEFAULT
+        default=ConfigItem('POWERFEED_DEFAULT_AMPERAGE')
     )
     max_utilization = models.PositiveSmallIntegerField(
         validators=[MinValueValidator(1), MaxValueValidator(100)],
-        default=POWERFEED_MAX_UTILIZATION_DEFAULT,
-        help_text="Maximum permissible draw (percentage)"
+        default=ConfigItem('POWERFEED_DEFAULT_MAX_UTILIZATION'),
+        help_text=_("Maximum permissible draw (percentage)")
     )
     available_power = models.PositiveIntegerField(
         default=0,
         editable=False
     )
-    comments = models.TextField(
-        blank=True
-    )
 
-    clone_fields = [
+    clone_fields = (
         'power_panel', 'rack', 'status', 'type', 'mark_connected', 'supply', 'phase', 'voltage', 'amperage',
-        'max_utilization', 'available_power',
-    ]
+        'max_utilization',
+    )
+    prerequisite_models = (
+        'dcim.PowerPanel',
+    )
 
     class Meta:
         ordering = ['power_panel', 'name']
-        unique_together = ['power_panel', 'name']
+        constraints = (
+            models.UniqueConstraint(
+                fields=('power_panel', 'name'),
+                name='%(app_label)s_%(class)s_unique_power_panel_name'
+            ),
+        )
 
     def __str__(self):
         return self.name

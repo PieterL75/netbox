@@ -6,10 +6,9 @@ from django.db import models
 from django.db.models import F
 from django.urls import reverse
 from django.utils.functional import cached_property
+from django.utils.translation import gettext as _
 
 from dcim.fields import ASNField
-from dcim.models import Device
-from netbox.models import OrganizationalModel, NetBoxModel
 from ipam.choices import *
 from ipam.constants import *
 from ipam.fields import IPNetworkField, IPAddressField
@@ -17,8 +16,7 @@ from ipam.managers import IPAddressManager
 from ipam.querysets import PrefixQuerySet
 from ipam.validators import DNSValidator
 from netbox.config import get_config
-from virtualization.models import VirtualMachine
-
+from netbox.models import OrganizationalModel, PrimaryModel
 
 __all__ = (
     'Aggregate',
@@ -35,13 +33,16 @@ class GetAvailablePrefixesMixin:
 
     def get_available_prefixes(self):
         """
-        Return all available Prefixes within this aggregate as an IPSet.
+        Return all available prefixes within this Aggregate or Prefix as an IPSet.
         """
-        prefix = netaddr.IPSet(self.prefix)
-        child_prefixes = netaddr.IPSet([child.prefix for child in self.get_child_prefixes()])
-        available_prefixes = prefix - child_prefixes
+        params = {
+            'prefix__net_contained': str(self.prefix)
+        }
+        if hasattr(self, 'vrf'):
+            params['vrf'] = self.vrf
 
-        return available_prefixes
+        child_prefixes = Prefix.objects.filter(**params).values_list('prefix', flat=True)
+        return netaddr.IPSet(self.prefix) - netaddr.IPSet(child_prefixes)
 
     def get_first_available_prefix(self):
         """
@@ -58,37 +59,22 @@ class RIR(OrganizationalModel):
     A Regional Internet Registry (RIR) is responsible for the allocation of a large portion of the global IP address
     space. This can be an organization like ARIN or RIPE, or a governing standard such as RFC 1918.
     """
-    name = models.CharField(
-        max_length=100,
-        unique=True
-    )
-    slug = models.SlugField(
-        max_length=100,
-        unique=True
-    )
     is_private = models.BooleanField(
         default=False,
         verbose_name='Private',
-        help_text='IP space managed by this RIR is considered private'
-    )
-    description = models.CharField(
-        max_length=200,
-        blank=True
+        help_text=_('IP space managed by this RIR is considered private')
     )
 
     class Meta:
-        ordering = ['name']
+        ordering = ('name',)
         verbose_name = 'RIR'
         verbose_name_plural = 'RIRs'
-
-    def __str__(self):
-        return self.name
 
     def get_absolute_url(self):
         return reverse('ipam:rir', args=[self.pk])
 
 
-class ASN(NetBoxModel):
+class ASN(PrimaryModel):
     """
     An autonomous system (AS) number is typically used to represent an independent routing domain. A site can have
     one or more ASNs assigned to it.
@@ -96,11 +82,7 @@ class ASN(NetBoxModel):
     asn = ASNField(
         unique=True,
         verbose_name='ASN',
-        help_text='32-bit autonomous system number'
-    )
-    description = models.CharField(
-        max_length=200,
-        blank=True
+        help_text=_('32-bit autonomous system number')
     )
     rir = models.ForeignKey(
         to='ipam.RIR',
@@ -114,6 +96,10 @@ class ASN(NetBoxModel):
         related_name='asns',
         blank=True,
         null=True
+    )
+
+    prerequisite_models = (
+        'ipam.RIR',
     )
 
     class Meta:
@@ -147,7 +133,7 @@ class ASN(NetBoxModel):
             return self.asn
 
 
-class Aggregate(GetAvailablePrefixesMixin, NetBoxModel):
+class Aggregate(GetAvailablePrefixesMixin, PrimaryModel):
     """
     An aggregate exists at the root level of the IP address space hierarchy in NetBox. Aggregates are used to organize
     the hierarchy and track the overall utilization of available address space. Each Aggregate is assigned to a RIR.
@@ -170,14 +156,13 @@ class Aggregate(GetAvailablePrefixesMixin, NetBoxModel):
         blank=True,
         null=True
     )
-    description = models.CharField(
-        max_length=200,
-        blank=True
-    )
 
-    clone_fields = [
+    clone_fields = (
         'rir', 'tenant', 'date_added', 'description',
-    ]
+    )
+    prerequisite_models = (
+        'ipam.RIR',
+    )
 
     class Meta:
         ordering = ('prefix', 'pk')  # prefix may be non-unique
@@ -254,24 +239,12 @@ class Role(OrganizationalModel):
     A Role represents the functional role of a Prefix or VLAN; for example, "Customer," "Infrastructure," or
     "Management."
     """
-    name = models.CharField(
-        max_length=100,
-        unique=True
-    )
-    slug = models.SlugField(
-        max_length=100,
-        unique=True
-    )
     weight = models.PositiveSmallIntegerField(
         default=1000
     )
-    description = models.CharField(
-        max_length=200,
-        blank=True,
-    )
 
     class Meta:
-        ordering = ['weight', 'name']
+        ordering = ('weight', 'name')
 
     def __str__(self):
         return self.name
@@ -280,14 +253,14 @@ class Role(OrganizationalModel):
         return reverse('ipam:role', args=[self.pk])
 
 
-class Prefix(GetAvailablePrefixesMixin, NetBoxModel):
+class Prefix(GetAvailablePrefixesMixin, PrimaryModel):
     """
     A Prefix represents an IPv4 or IPv6 network, including mask length. Prefixes can optionally be assigned to Sites and
     VRFs. A Prefix must be assigned a status and may optionally be assigned a used-define Role. A Prefix can also be
     assigned to a VLAN where appropriate.
     """
     prefix = IPNetworkField(
-        help_text='IPv4 or IPv6 network with mask'
+        help_text=_('IPv4 or IPv6 network with mask')
     )
     site = models.ForeignKey(
         to='dcim.Site',
@@ -324,7 +297,7 @@ class Prefix(GetAvailablePrefixesMixin, NetBoxModel):
         choices=PrefixStatusChoices,
         default=PrefixStatusChoices.STATUS_ACTIVE,
         verbose_name='Status',
-        help_text='Operational status of this prefix'
+        help_text=_('Operational status of this prefix')
     )
     role = models.ForeignKey(
         to='ipam.Role',
@@ -332,20 +305,16 @@ class Prefix(GetAvailablePrefixesMixin, NetBoxModel):
         related_name='prefixes',
         blank=True,
         null=True,
-        help_text='The primary function of this prefix'
+        help_text=_('The primary function of this prefix')
     )
     is_pool = models.BooleanField(
         verbose_name='Is a pool',
         default=False,
-        help_text='All IP addresses within this prefix are considered usable'
+        help_text=_('All IP addresses within this prefix are considered usable')
     )
     mark_utilized = models.BooleanField(
         default=False,
-        help_text="Treat as 100% utilized"
-    )
-    description = models.CharField(
-        max_length=200,
-        blank=True
+        help_text=_("Treat as 100% utilized")
     )
 
     # Cached depth & child counts
@@ -360,9 +329,9 @@ class Prefix(GetAvailablePrefixesMixin, NetBoxModel):
 
     objects = PrefixQuerySet.as_manager()
 
-    clone_fields = [
+    clone_fields = (
         'site', 'vrf', 'tenant', 'vlan', 'status', 'role', 'is_pool', 'mark_utilized', 'description',
-    ]
+    )
 
     class Meta:
         ordering = (F('vrf').asc(nulls_first=True), 'prefix', 'pk')  # (vrf, prefix) may be non-unique
@@ -373,7 +342,7 @@ class Prefix(GetAvailablePrefixesMixin, NetBoxModel):
 
         # Cache the original prefix and VRF so we can check if they have changed on post_save
         self._prefix = self.prefix
-        self._vrf = self.vrf
+        self._vrf_id = self.vrf_id
 
     def __str__(self):
         return str(self.prefix)
@@ -561,15 +530,15 @@ class Prefix(GetAvailablePrefixesMixin, NetBoxModel):
         return min(utilization, 100)
 
 
-class IPRange(NetBoxModel):
+class IPRange(PrimaryModel):
     """
     A range of IP addresses, defined by start and end addresses.
     """
     start_address = IPAddressField(
-        help_text='IPv4 or IPv6 address (with mask)'
+        help_text=_('IPv4 or IPv6 address (with mask)')
     )
     end_address = IPAddressField(
-        help_text='IPv4 or IPv6 address (with mask)'
+        help_text=_('IPv4 or IPv6 address (with mask)')
     )
     size = models.PositiveIntegerField(
         editable=False
@@ -593,7 +562,7 @@ class IPRange(NetBoxModel):
         max_length=50,
         choices=IPRangeStatusChoices,
         default=IPRangeStatusChoices.STATUS_ACTIVE,
-        help_text='Operational status of this range'
+        help_text=_('Operational status of this range')
     )
     role = models.ForeignKey(
         to='ipam.Role',
@@ -601,16 +570,12 @@ class IPRange(NetBoxModel):
         related_name='ip_ranges',
         blank=True,
         null=True,
-        help_text='The primary function of this range'
-    )
-    description = models.CharField(
-        max_length=200,
-        blank=True
+        help_text=_('The primary function of this range')
     )
 
-    clone_fields = [
+    clone_fields = (
         'vrf', 'tenant', 'status', 'role', 'description',
-    ]
+    )
 
     class Meta:
         ordering = (F('vrf').asc(nulls_first=True), 'start_address', 'pk')  # (vrf, start_address) may be non-unique
@@ -756,7 +721,7 @@ class IPRange(NetBoxModel):
         return int(float(child_count) / self.size * 100)
 
 
-class IPAddress(NetBoxModel):
+class IPAddress(PrimaryModel):
     """
     An IPAddress represents an individual IPv4 or IPv6 address and its mask. The mask length should match what is
     configured in the real world. (Typically, only loopback interfaces are configured with /32 or /128 masks.) Like
@@ -768,7 +733,7 @@ class IPAddress(NetBoxModel):
     which has a NAT outside IP, that Interface's Device can use either the inside or outside IP as its primary IP.
     """
     address = IPAddressField(
-        help_text='IPv4 or IPv6 address (with mask)'
+        help_text=_('IPv4 or IPv6 address (with mask)')
     )
     vrf = models.ForeignKey(
         to='ipam.VRF',
@@ -789,13 +754,13 @@ class IPAddress(NetBoxModel):
         max_length=50,
         choices=IPAddressStatusChoices,
         default=IPAddressStatusChoices.STATUS_ACTIVE,
-        help_text='The operational status of this IP'
+        help_text=_('The operational status of this IP')
     )
     role = models.CharField(
         max_length=50,
         choices=IPAddressRoleChoices,
         blank=True,
-        help_text='The functional role of this IP'
+        help_text=_('The functional role of this IP')
     )
     assigned_object_type = models.ForeignKey(
         to=ContentType,
@@ -813,32 +778,28 @@ class IPAddress(NetBoxModel):
         ct_field='assigned_object_type',
         fk_field='assigned_object_id'
     )
-    nat_inside = models.OneToOneField(
+    nat_inside = models.ForeignKey(
         to='self',
         on_delete=models.SET_NULL,
         related_name='nat_outside',
         blank=True,
         null=True,
         verbose_name='NAT (Inside)',
-        help_text='The IP for which this address is the "outside" IP'
+        help_text=_('The IP for which this address is the "outside" IP')
     )
     dns_name = models.CharField(
         max_length=255,
         blank=True,
         validators=[DNSValidator],
         verbose_name='DNS Name',
-        help_text='Hostname or FQDN (not case-sensitive)'
-    )
-    description = models.CharField(
-        max_length=200,
-        blank=True
+        help_text=_('Hostname or FQDN (not case-sensitive)')
     )
 
     objects = IPAddressManager()
 
-    clone_fields = [
-        'vrf', 'tenant', 'status', 'role', 'description',
-    ]
+    clone_fields = (
+        'vrf', 'tenant', 'status', 'role', 'dns_name', 'description',
+    )
 
     class Meta:
         ordering = ('address', 'pk')  # address may be non-unique
@@ -856,6 +817,25 @@ class IPAddress(NetBoxModel):
             vrf=self.vrf,
             address__net_host=str(self.address.ip)
         ).exclude(pk=self.pk)
+
+    def get_next_available_ip(self):
+        """
+        Return the next available IP address within this IP's network (if any)
+        """
+        if self.address and self.address.broadcast:
+            start_ip = self.address.ip + 1
+            end_ip = self.address.broadcast - 1
+            if start_ip <= end_ip:
+                available_ips = netaddr.IPSet(netaddr.IPRange(start_ip, end_ip))
+                available_ips -= netaddr.IPSet([
+                    address.ip for address in IPAddress.objects.filter(
+                        vrf=self.vrf,
+                        address__gt=self.address,
+                        address__net_contained_or_equal=self.address.cidr
+                    ).values_list('address', flat=True)
+                ])
+                if available_ips:
+                    return next(iter(available_ips))
 
     def clean(self):
         super().clean()
@@ -882,18 +862,6 @@ class IPAddress(NetBoxModel):
                         )
                     })
 
-        # Check for primary IP assignment that doesn't match the assigned device/VM
-        if self.pk:
-            for cls, attr in ((Device, 'device'), (VirtualMachine, 'virtual_machine')):
-                parent = cls.objects.filter(Q(primary_ip4=self) | Q(primary_ip6=self)).first()
-                if parent and getattr(self.assigned_object, attr, None) != parent:
-                    # Check for a NAT relationship
-                    if not self.nat_inside or getattr(self.nat_inside.assigned_object, attr, None) != parent:
-                        raise ValidationError({
-                            'interface': f"IP address is primary for {cls._meta.model_name} {parent} but "
-                                         f"not assigned to it!"
-                        })
-
         # Validate IP status selection
         if self.status == IPAddressStatusChoices.STATUS_SLAAC and self.family != 6:
             raise ValidationError({
@@ -906,6 +874,15 @@ class IPAddress(NetBoxModel):
         self.dns_name = self.dns_name.lower()
 
         super().save(*args, **kwargs)
+
+    def clone(self):
+        attrs = super().clone()
+
+        # Populate the address field with the next available IP (if any)
+        if next_available_ip := self.get_next_available_ip():
+            attrs['address'] = f'{next_available_ip}/{self.address.prefixlen}'
+
+        return attrs
 
     def to_objectchange(self, action):
         objectchange = super().to_objectchange(action)

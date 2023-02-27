@@ -24,6 +24,28 @@ class SiteStatusChoices(ChoiceSet):
 
 
 #
+# Locations
+#
+
+class LocationStatusChoices(ChoiceSet):
+    key = 'Location.status'
+
+    STATUS_PLANNED = 'planned'
+    STATUS_STAGING = 'staging'
+    STATUS_ACTIVE = 'active'
+    STATUS_DECOMMISSIONING = 'decommissioning'
+    STATUS_RETIRED = 'retired'
+
+    CHOICES = [
+        (STATUS_PLANNED, 'Planned', 'cyan'),
+        (STATUS_STAGING, 'Staging', 'blue'),
+        (STATUS_ACTIVE, 'Active', 'green'),
+        (STATUS_DECOMMISSIONING, 'Decommissioning', 'yellow'),
+        (STATUS_RETIRED, 'Retired', 'red'),
+    ]
+
+
+#
 # Racks
 #
 
@@ -33,14 +55,18 @@ class RackTypeChoices(ChoiceSet):
     TYPE_4POST = '4-post-frame'
     TYPE_CABINET = '4-post-cabinet'
     TYPE_WALLFRAME = 'wall-frame'
+    TYPE_WALLFRAME_VERTICAL = 'wall-frame-vertical'
     TYPE_WALLCABINET = 'wall-cabinet'
+    TYPE_WALLCABINET_VERTICAL = 'wall-cabinet-vertical'
 
     CHOICES = (
         (TYPE_2POST, '2-post frame'),
         (TYPE_4POST, '4-post frame'),
         (TYPE_CABINET, '4-post cabinet'),
         (TYPE_WALLFRAME, 'Wall-mounted frame'),
+        (TYPE_WALLFRAME_VERTICAL, 'Wall-mounted frame (vertical)'),
         (TYPE_WALLCABINET, 'Wall-mounted cabinet'),
+        (TYPE_WALLCABINET_VERTICAL, 'Wall-mounted cabinet (vertical)'),
     )
 
 
@@ -170,6 +196,30 @@ class DeviceAirflowChoices(ChoiceSet):
         (AIRFLOW_PASSIVE, 'Passive'),
         (AIRFLOW_MIXED, 'Mixed'),
     )
+
+
+#
+# Modules
+#
+
+class ModuleStatusChoices(ChoiceSet):
+    key = 'Module.status'
+
+    STATUS_OFFLINE = 'offline'
+    STATUS_ACTIVE = 'active'
+    STATUS_PLANNED = 'planned'
+    STATUS_STAGED = 'staged'
+    STATUS_FAILED = 'failed'
+    STATUS_DECOMMISSIONING = 'decommissioning'
+
+    CHOICES = [
+        (STATUS_OFFLINE, 'Offline', 'gray'),
+        (STATUS_ACTIVE, 'Active', 'green'),
+        (STATUS_PLANNED, 'Planned', 'cyan'),
+        (STATUS_STAGED, 'Staged', 'blue'),
+        (STATUS_FAILED, 'Failed', 'red'),
+        (STATUS_DECOMMISSIONING, 'Decommissioning', 'yellow'),
+    ]
 
 
 #
@@ -735,7 +785,10 @@ class InterfaceTypeChoices(ChoiceSet):
     TYPE_LAG = 'lag'
 
     # Ethernet
+    TYPE_100ME_FX = '100base-fx'
+    TYPE_100ME_LFX = '100base-lfx'
     TYPE_100ME_FIXED = '100base-tx'
+    TYPE_100ME_T1 = '100base-t1'
     TYPE_1GE_FIXED = '1000base-t'
     TYPE_1GE_GBIC = '1000base-x-gbic'
     TYPE_1GE_SFP = '1000base-x-sfp'
@@ -760,6 +813,19 @@ class InterfaceTypeChoices(ChoiceSet):
     TYPE_200GE_QSFP56 = '200gbase-x-qsfp56'
     TYPE_400GE_QSFP_DD = '400gbase-x-qsfpdd'
     TYPE_400GE_OSFP = '400gbase-x-osfp'
+    TYPE_800GE_QSFP_DD = '800gbase-x-qsfpdd'
+    TYPE_800GE_OSFP = '800gbase-x-osfp'
+
+    # Ethernet Backplane
+    TYPE_1GE_KX = '1000base-kx'
+    TYPE_10GE_KR = '10gbase-kr'
+    TYPE_10GE_KX4 = '10gbase-kx4'
+    TYPE_25GE_KR = '25gbase-kr'
+    TYPE_40GE_KR4 = '40gbase-kr4'
+    TYPE_50GE_KR = '50gbase-kr'
+    TYPE_100GE_KP4 = '100gbase-kp4'
+    TYPE_100GE_KR2 = '100gbase-kr2'
+    TYPE_100GE_KR4 = '100gbase-kr4'
 
     # Wireless
     TYPE_80211A = 'ieee802.11a'
@@ -768,7 +834,9 @@ class InterfaceTypeChoices(ChoiceSet):
     TYPE_80211AC = 'ieee802.11ac'
     TYPE_80211AD = 'ieee802.11ad'
     TYPE_80211AX = 'ieee802.11ax'
+    TYPE_80211AY = 'ieee802.11ay'
     TYPE_802151 = 'ieee802.15.1'
+    TYPE_OTHER_WIRELESS = 'other-wireless'
 
     # Cellular
     TYPE_GSM = 'gsm'
@@ -814,6 +882,17 @@ class InterfaceTypeChoices(ChoiceSet):
     # ATM/DSL
     TYPE_XDSL = 'xdsl'
 
+    # Coaxial
+    TYPE_DOCSIS = 'docsis'
+
+    # PON
+    TYPE_GPON = 'gpon'
+    TYPE_XG_PON = 'xg-pon'
+    TYPE_XGS_PON = 'xgs-pon'
+    TYPE_NG_PON2 = 'ng-pon2'
+    TYPE_EPON = 'epon'
+    TYPE_10G_EPON = '10g-epon'
+
     # Stacking
     TYPE_STACKWISE = 'cisco-stackwise'
     TYPE_STACKWISE_PLUS = 'cisco-stackwise-plus'
@@ -844,7 +923,10 @@ class InterfaceTypeChoices(ChoiceSet):
         (
             'Ethernet (fixed)',
             (
+                (TYPE_100ME_FX, '100BASE-FX (10/100ME FIBER)'),
+                (TYPE_100ME_LFX, '100BASE-LFX (10/100ME FIBER)'),
                 (TYPE_100ME_FIXED, '100BASE-TX (10/100ME)'),
+                (TYPE_100ME_T1, '100BASE-T1 (10/100ME Single Pair)'),
                 (TYPE_1GE_FIXED, '1000BASE-T (1GE)'),
                 (TYPE_2GE_FIXED, '2.5GBASE-T (2.5GE)'),
                 (TYPE_5GE_FIXED, '5GBASE-T (5GE)'),
@@ -874,6 +956,22 @@ class InterfaceTypeChoices(ChoiceSet):
                 (TYPE_200GE_QSFP56, 'QSFP56 (200GE)'),
                 (TYPE_400GE_QSFP_DD, 'QSFP-DD (400GE)'),
                 (TYPE_400GE_OSFP, 'OSFP (400GE)'),
+                (TYPE_800GE_QSFP_DD, 'QSFP-DD (800GE)'),
+                (TYPE_800GE_OSFP, 'OSFP (800GE)'),
+            )
+        ),
+        (
+            'Ethernet (backplane)',
+            (
+                (TYPE_1GE_KX, '1000BASE-KX (1GE)'),
+                (TYPE_10GE_KR, '10GBASE-KR (10GE)'),
+                (TYPE_10GE_KX4, '10GBASE-KX4 (10GE)'),
+                (TYPE_25GE_KR, '25GBASE-KR (25GE)'),
+                (TYPE_40GE_KR4, '40GBASE-KR4 (40GE)'),
+                (TYPE_50GE_KR, '50GBASE-KR (50GE)'),
+                (TYPE_100GE_KP4, '100GBASE-KP4 (100GE)'),
+                (TYPE_100GE_KR2, '100GBASE-KR2 (100GE)'),
+                (TYPE_100GE_KR4, '100GBASE-KR4 (100GE)'),
             )
         ),
         (
@@ -885,7 +983,9 @@ class InterfaceTypeChoices(ChoiceSet):
                 (TYPE_80211AC, 'IEEE 802.11ac'),
                 (TYPE_80211AD, 'IEEE 802.11ad'),
                 (TYPE_80211AX, 'IEEE 802.11ax'),
+                (TYPE_80211AY, 'IEEE 802.11ay'),
                 (TYPE_802151, 'IEEE 802.15.1 (Bluetooth)'),
+                (TYPE_OTHER_WIRELESS, 'Other (Wireless)'),
             )
         ),
         (
@@ -951,6 +1051,23 @@ class InterfaceTypeChoices(ChoiceSet):
             )
         ),
         (
+            'Coaxial',
+            (
+                (TYPE_DOCSIS, 'DOCSIS'),
+            )
+        ),
+        (
+            'PON',
+            (
+                (TYPE_GPON, 'GPON (2.5 Gbps / 1.25 Gps)'),
+                (TYPE_XG_PON, 'XG-PON (10 Gbps / 2.5 Gbps)'),
+                (TYPE_XGS_PON, 'XGS-PON (10 Gbps)'),
+                (TYPE_NG_PON2, 'NG-PON2 (TWDM-PON) (4x10 Gbps)'),
+                (TYPE_EPON, 'EPON (1 Gbps)'),
+                (TYPE_10G_EPON, '10G-EPON (10 Gbps)'),
+            )
+        ),
+        (
             'Stacking',
             (
                 (TYPE_STACKWISE, 'Cisco StackWise'),
@@ -1000,6 +1117,51 @@ class InterfaceModeChoices(ChoiceSet):
         (MODE_ACCESS, 'Access'),
         (MODE_TAGGED, 'Tagged'),
         (MODE_TAGGED_ALL, 'Tagged (All)'),
+    )
+
+
+class InterfacePoEModeChoices(ChoiceSet):
+
+    MODE_PD = 'pd'
+    MODE_PSE = 'pse'
+
+    CHOICES = (
+        (MODE_PD, 'PD'),
+        (MODE_PSE, 'PSE'),
+    )
+
+
+class InterfacePoETypeChoices(ChoiceSet):
+
+    TYPE_1_8023AF = 'type1-ieee802.3af'
+    TYPE_2_8023AT = 'type2-ieee802.3at'
+    TYPE_3_8023BT = 'type3-ieee802.3bt'
+    TYPE_4_8023BT = 'type4-ieee802.3bt'
+
+    PASSIVE_24V_2PAIR = 'passive-24v-2pair'
+    PASSIVE_24V_4PAIR = 'passive-24v-4pair'
+    PASSIVE_48V_2PAIR = 'passive-48v-2pair'
+    PASSIVE_48V_4PAIR = 'passive-48v-4pair'
+
+    CHOICES = (
+        (
+            'IEEE Standard',
+            (
+                (TYPE_1_8023AF, '802.3af (Type 1)'),
+                (TYPE_2_8023AT, '802.3at (Type 2)'),
+                (TYPE_3_8023BT, '802.3bt (Type 3)'),
+                (TYPE_4_8023BT, '802.3bt (Type 4)'),
+            )
+        ),
+        (
+            'Passive',
+            (
+                (PASSIVE_24V_2PAIR, 'Passive 24V (2-pair)'),
+                (PASSIVE_24V_4PAIR, 'Passive 24V (4-pair)'),
+                (PASSIVE_48V_2PAIR, 'Passive 48V (2-pair)'),
+                (PASSIVE_48V_4PAIR, 'Passive 48V (4-pair)'),
+            )
+        ),
     )
 
 
@@ -1215,6 +1377,40 @@ class CableLengthUnitChoices(ChoiceSet):
     )
 
 
+class WeightUnitChoices(ChoiceSet):
+
+    # Metric
+    UNIT_KILOGRAM = 'kg'
+    UNIT_GRAM = 'g'
+
+    # Imperial
+    UNIT_POUND = 'lb'
+    UNIT_OUNCE = 'oz'
+
+    CHOICES = (
+        (UNIT_KILOGRAM, 'Kilograms'),
+        (UNIT_GRAM, 'Grams'),
+        (UNIT_POUND, 'Pounds'),
+        (UNIT_OUNCE, 'Ounces'),
+    )
+
+
+#
+# CableTerminations
+#
+
+class CableEndChoices(ChoiceSet):
+
+    SIDE_A = 'A'
+    SIDE_B = 'B'
+
+    CHOICES = (
+        (SIDE_A, 'A'),
+        (SIDE_B, 'B'),
+        # ('', ''),
+    )
+
+
 #
 # PowerFeeds
 #
@@ -1266,3 +1462,20 @@ class PowerFeedPhaseChoices(ChoiceSet):
         (PHASE_SINGLE, 'Single phase'),
         (PHASE_3PHASE, 'Three-phase'),
     )
+
+
+#
+# VDC
+#
+class VirtualDeviceContextStatusChoices(ChoiceSet):
+    key = 'VirtualDeviceContext.status'
+
+    STATUS_ACTIVE = 'active'
+    STATUS_PLANNED = 'planned'
+    STATUS_OFFLINE = 'offline'
+
+    CHOICES = [
+        (STATUS_ACTIVE, 'Active', 'green'),
+        (STATUS_PLANNED, 'Planned', 'cyan'),
+        (STATUS_OFFLINE, 'Offline', 'red'),
+    ]

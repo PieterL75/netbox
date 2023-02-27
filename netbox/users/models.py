@@ -1,6 +1,7 @@
 import binascii
 import os
 
+from django.conf import settings
 from django.contrib.auth.models import Group, User
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.postgres.fields import ArrayField
@@ -9,12 +10,14 @@ from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
+from django.utils.translation import gettext as _
+from netaddr import IPNetwork
 
+from ipam.fields import IPNetworkField
 from netbox.config import get_config
 from utilities.querysets import RestrictedQuerySet
 from utilities.utils import flatten_dict
 from .constants import *
-
 
 __all__ = (
     'ObjectPermission',
@@ -203,6 +206,10 @@ class Token(models.Model):
         blank=True,
         null=True
     )
+    last_used = models.DateTimeField(
+        blank=True,
+        null=True
+    )
     key = models.CharField(
         max_length=40,
         unique=True,
@@ -210,19 +217,27 @@ class Token(models.Model):
     )
     write_enabled = models.BooleanField(
         default=True,
-        help_text='Permit create/update/delete operations using this key'
+        help_text=_('Permit create/update/delete operations using this key')
     )
     description = models.CharField(
         max_length=200,
         blank=True
     )
-
-    class Meta:
-        pass
+    allowed_ips = ArrayField(
+        base_field=IPNetworkField(),
+        blank=True,
+        null=True,
+        verbose_name='Allowed IPs',
+        help_text=_('Allowed IPv4/IPv6 networks from where the token can be used. Leave blank for no restrictions. '
+                    'Ex: "10.1.1.0/24, 192.168.10.16/32, 2001:DB8:1::/64"'),
+    )
 
     def __str__(self):
-        # Only display the last 24 bits of the token to avoid accidental exposure.
-        return f"{self.key[-6:]} ({self.user})"
+        return self.key if settings.ALLOW_TOKEN_RETRIEVAL else self.partial
+
+    @property
+    def partial(self):
+        return f'**********************************{self.key[-6:]}' if self.key else ''
 
     def save(self, *args, **kwargs):
         if not self.key:
@@ -239,6 +254,19 @@ class Token(models.Model):
         if self.expires is None or timezone.now() < self.expires:
             return False
         return True
+
+    def validate_client_ip(self, client_ip):
+        """
+        Validate the API client IP address against the source IP restrictions (if any) set on the token.
+        """
+        if not self.allowed_ips:
+            return True
+
+        for ip_network in self.allowed_ips:
+            if client_ip in IPNetwork(ip_network):
+                return True
+
+        return False
 
 
 #
@@ -277,12 +305,12 @@ class ObjectPermission(models.Model):
     )
     actions = ArrayField(
         base_field=models.CharField(max_length=30),
-        help_text="The list of actions granted by this permission"
+        help_text=_("The list of actions granted by this permission")
     )
     constraints = models.JSONField(
         blank=True,
         null=True,
-        help_text="Queryset filter matching the applicable objects of the selected type(s)"
+        help_text=_("Queryset filter matching the applicable objects of the selected type(s)")
     )
 
     objects = RestrictedQuerySet.as_manager()

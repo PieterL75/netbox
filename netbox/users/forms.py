@@ -1,7 +1,11 @@
 from django import forms
+from django.conf import settings
 from django.contrib.auth.forms import AuthenticationForm, PasswordChangeForm as DjangoPasswordChangeForm
+from django.contrib.postgres.forms import SimpleArrayField
 from django.utils.html import mark_safe
+from django.utils.translation import gettext as _
 
+from ipam.formfields import IPNetworkFormField
 from netbox.preferences import PREFERENCES
 from utilities.forms import BootstrapMixin, DateTimePicker, StaticSelect
 from utilities.utils import flatten_dict
@@ -97,14 +101,28 @@ class UserConfigForm(BootstrapMixin, forms.ModelForm, metaclass=UserConfigFormMe
 class TokenForm(BootstrapMixin, forms.ModelForm):
     key = forms.CharField(
         required=False,
-        help_text="If no key is provided, one will be generated automatically."
+        help_text=_("If no key is provided, one will be generated automatically.")
+    )
+    allowed_ips = SimpleArrayField(
+        base_field=IPNetworkFormField(),
+        required=False,
+        label=_('Allowed IPs'),
+        help_text=_('Allowed IPv4/IPv6 networks from where the token can be used. Leave blank for no restrictions. '
+                    'Example: <code>10.1.1.0/24,192.168.10.16/32,2001:db8:1::/64</code>'),
     )
 
     class Meta:
         model = Token
         fields = [
-            'key', 'write_enabled', 'expires', 'description',
+            'key', 'write_enabled', 'expires', 'description', 'allowed_ips',
         ]
         widgets = {
             'expires': DateTimePicker(),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Omit the key field if token retrieval is not permitted
+        if self.instance.pk and not settings.ALLOW_TOKEN_RETRIEVAL:
+            del self.fields['key']

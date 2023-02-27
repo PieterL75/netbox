@@ -1,11 +1,15 @@
+from django.apps import apps
 from django.contrib.contenttypes.fields import GenericRelation
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.urls import reverse
+from django.utils.translation import gettext as _
 
 from circuits.choices import *
-from dcim.models import LinkTermination
-from netbox.models import ChangeLoggedModel, OrganizationalModel, NetBoxModel
+from dcim.models import CabledObjectModel
+from netbox.models import (
+    ChangeLoggedModel, CustomFieldsMixin, CustomLinksMixin, OrganizationalModel, PrimaryModel, TagsMixin,
+)
 from netbox.models.features import WebhooksMixin
 
 __all__ = (
@@ -20,30 +24,11 @@ class CircuitType(OrganizationalModel):
     Circuits can be organized by their functional role. For example, a user might wish to define CircuitTypes named
     "Long Haul," "Metro," or "Out-of-Band".
     """
-    name = models.CharField(
-        max_length=100,
-        unique=True
-    )
-    slug = models.SlugField(
-        max_length=100,
-        unique=True
-    )
-    description = models.CharField(
-        max_length=200,
-        blank=True,
-    )
-
-    class Meta:
-        ordering = ['name']
-
-    def __str__(self):
-        return self.name
-
     def get_absolute_url(self):
         return reverse('circuits:circuittype', args=[self.pk])
 
 
-class Circuit(NetBoxModel):
+class Circuit(PrimaryModel):
     """
     A communications circuit connects two points. Each Circuit belongs to a Provider; Providers may have multiple
     circuits. Each circuit is also assigned a CircuitType and a Site.  Circuit port speed and commit rate are measured
@@ -78,19 +63,17 @@ class Circuit(NetBoxModel):
     install_date = models.DateField(
         blank=True,
         null=True,
-        verbose_name='Date installed'
+        verbose_name='Installed'
+    )
+    termination_date = models.DateField(
+        blank=True,
+        null=True,
+        verbose_name='Terminates'
     )
     commit_rate = models.PositiveIntegerField(
         blank=True,
         null=True,
         verbose_name='Commit rate (Kbps)')
-    description = models.CharField(
-        max_length=200,
-        blank=True
-    )
-    comments = models.TextField(
-        blank=True
-    )
 
     # Generic relations
     contacts = GenericRelation(
@@ -118,13 +101,22 @@ class Circuit(NetBoxModel):
         null=True
     )
 
-    clone_fields = [
-        'provider', 'type', 'status', 'tenant', 'install_date', 'commit_rate', 'description',
-    ]
+    clone_fields = (
+        'provider', 'type', 'status', 'tenant', 'install_date', 'termination_date', 'commit_rate', 'description',
+    )
+    prerequisite_models = (
+        'circuits.CircuitType',
+        'circuits.Provider',
+    )
 
     class Meta:
         ordering = ['provider', 'cid']
-        unique_together = ['provider', 'cid']
+        constraints = (
+            models.UniqueConstraint(
+                fields=('provider', 'cid'),
+                name='%(app_label)s_%(class)s_unique_provider_cid'
+            ),
+        )
 
     def __str__(self):
         return self.cid
@@ -136,7 +128,14 @@ class Circuit(NetBoxModel):
         return CircuitStatusChoices.colors.get(self.status)
 
 
-class CircuitTermination(WebhooksMixin, ChangeLoggedModel, LinkTermination):
+class CircuitTermination(
+    CustomFieldsMixin,
+    CustomLinksMixin,
+    TagsMixin,
+    WebhooksMixin,
+    ChangeLoggedModel,
+    CabledObjectModel
+):
     circuit = models.ForeignKey(
         to='circuits.Circuit',
         on_delete=models.CASCADE,
@@ -170,7 +169,7 @@ class CircuitTermination(WebhooksMixin, ChangeLoggedModel, LinkTermination):
         blank=True,
         null=True,
         verbose_name='Upstream speed (Kbps)',
-        help_text='Upstream speed, if different from port speed'
+        help_text=_('Upstream speed, if different from port speed')
     )
     xconnect_id = models.CharField(
         max_length=50,
@@ -189,15 +188,18 @@ class CircuitTermination(WebhooksMixin, ChangeLoggedModel, LinkTermination):
 
     class Meta:
         ordering = ['circuit', 'term_side']
-        unique_together = ['circuit', 'term_side']
+        constraints = (
+            models.UniqueConstraint(
+                fields=('circuit', 'term_side'),
+                name='%(app_label)s_%(class)s_unique_circuit_term_side'
+            ),
+        )
 
     def __str__(self):
-        return f'Termination {self.term_side}: {self.site or self.provider_network}'
+        return f'{self.circuit}: Termination {self.term_side}'
 
     def get_absolute_url(self):
-        if self.site:
-            return self.site.get_absolute_url()
-        return self.provider_network.get_absolute_url()
+        return self.circuit.get_absolute_url()
 
     def clean(self):
         super().clean()

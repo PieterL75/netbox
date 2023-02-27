@@ -17,6 +17,7 @@ __all__ = (
     'DatePicker',
     'DateTimePicker',
     'NumericArrayField',
+    'SelectDurationWidget',
     'SelectSpeedWidget',
     'SelectWithPK',
     'SlugWidget',
@@ -108,7 +109,20 @@ class SelectSpeedWidget(forms.NumberInput):
     template_name = 'widgets/select_speed.html'
 
 
+class SelectDurationWidget(forms.NumberInput):
+    """
+    Dropdown to select one of several common options for a time duration (in minutes).
+    """
+    template_name = 'widgets/select_duration.html'
+
+
 class NumericArrayField(SimpleArrayField):
+
+    def clean(self, value):
+        if value and not self.to_python(value):
+            raise forms.ValidationError(f'Invalid list ({value}). '
+                                        f'Must be numeric and ranges must be in ascending order')
+        return super().clean(value)
 
     def to_python(self, value):
         if not value:

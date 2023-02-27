@@ -7,6 +7,7 @@ from dcim.choices import *
 from dcim.constants import *
 from dcim.models import *
 from ipam.models import ASN, RIR, VLAN, VRF
+from netbox.api.serializers import GenericObjectSerializer
 from utilities.testing import APITestCase, APIViewTestCases, create_test_device
 from virtualization.models import Cluster, ClusterType
 from wireless.choices import WirelessChannelChoices
@@ -45,7 +46,7 @@ class Mixins:
                 device=peer_device,
                 name='Peer Termination'
             )
-            cable = Cable(termination_a=obj, termination_b=peer_obj, label='Cable 1')
+            cable = Cable(a_terminations=[obj], b_terminations=[peer_obj], label='Cable 1')
             cable.save()
 
             self.add_permissions(f'dcim.view_{self.model._meta.model_name}')
@@ -55,9 +56,9 @@ class Mixins:
             self.assertHttpStatus(response, status.HTTP_200_OK)
             self.assertEqual(len(response.data), 1)
             segment1 = response.data[0]
-            self.assertEqual(segment1[0]['name'], obj.name)
+            self.assertEqual(segment1[0][0]['name'], obj.name)
             self.assertEqual(segment1[1]['label'], cable.label)
-            self.assertEqual(segment1[2]['name'], peer_obj.name)
+            self.assertEqual(segment1[2][0]['name'], peer_obj.name)
 
 
 class RegionTest(APIViewTestCases.APIViewTestCase):
@@ -197,13 +198,13 @@ class LocationTest(APIViewTestCases.APIViewTestCase):
         Site.objects.bulk_create(sites)
 
         parent_locations = (
-            Location.objects.create(site=sites[0], name='Parent Location 1', slug='parent-location-1'),
-            Location.objects.create(site=sites[1], name='Parent Location 2', slug='parent-location-2'),
+            Location.objects.create(site=sites[0], name='Parent Location 1', slug='parent-location-1', status=LocationStatusChoices.STATUS_ACTIVE),
+            Location.objects.create(site=sites[1], name='Parent Location 2', slug='parent-location-2', status=LocationStatusChoices.STATUS_ACTIVE),
         )
 
-        Location.objects.create(site=sites[0], name='Location 1', slug='location-1', parent=parent_locations[0])
-        Location.objects.create(site=sites[0], name='Location 2', slug='location-2', parent=parent_locations[0])
-        Location.objects.create(site=sites[0], name='Location 3', slug='location-3', parent=parent_locations[0])
+        Location.objects.create(site=sites[0], name='Location 1', slug='location-1', parent=parent_locations[0], status=LocationStatusChoices.STATUS_ACTIVE)
+        Location.objects.create(site=sites[0], name='Location 2', slug='location-2', parent=parent_locations[0], status=LocationStatusChoices.STATUS_ACTIVE)
+        Location.objects.create(site=sites[0], name='Location 3', slug='location-3', parent=parent_locations[0], status=LocationStatusChoices.STATUS_ACTIVE)
 
         cls.create_data = [
             {
@@ -211,18 +212,21 @@ class LocationTest(APIViewTestCases.APIViewTestCase):
                 'slug': 'test-location-4',
                 'site': sites[1].pk,
                 'parent': parent_locations[1].pk,
+                'status': LocationStatusChoices.STATUS_PLANNED,
             },
             {
                 'name': 'Test Location 5',
                 'slug': 'test-location-5',
                 'site': sites[1].pk,
                 'parent': parent_locations[1].pk,
+                'status': LocationStatusChoices.STATUS_PLANNED,
             },
             {
                 'name': 'Test Location 6',
                 'slug': 'test-location-6',
                 'site': sites[1].pk,
                 'parent': parent_locations[1].pk,
+                'status': LocationStatusChoices.STATUS_PLANNED,
             },
         ]
 
@@ -327,15 +331,15 @@ class RackTest(APIViewTestCases.APIViewTestCase):
 
         # Retrieve all units
         response = self.client.get(url, **self.header)
-        self.assertEqual(response.data['count'], 42)
+        self.assertEqual(response.data['count'], 84)
 
         # Search for specific units
         response = self.client.get(f'{url}?q=3', **self.header)
-        self.assertEqual(response.data['count'], 13)
+        self.assertEqual(response.data['count'], 26)
         response = self.client.get(f'{url}?q=U3', **self.header)
-        self.assertEqual(response.data['count'], 11)
+        self.assertEqual(response.data['count'], 22)
         response = self.client.get(f'{url}?q=U10', **self.header)
-        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['count'], 2)
 
     def test_get_rack_elevation_svg(self):
         """
@@ -457,16 +461,19 @@ class DeviceTypeTest(APIViewTestCases.APIViewTestCase):
                 'manufacturer': manufacturers[1].pk,
                 'model': 'Device Type 4',
                 'slug': 'device-type-4',
+                'u_height': 0,
             },
             {
                 'manufacturer': manufacturers[1].pk,
                 'model': 'Device Type 5',
                 'slug': 'device-type-5',
+                'u_height': 0.5,
             },
             {
                 'manufacturer': manufacturers[1].pk,
                 'model': 'Device Type 6',
                 'slug': 'device-type-6',
+                'u_height': 1,
             },
         ]
 
@@ -1264,6 +1271,7 @@ class ModuleTest(APIViewTestCases.APIViewTestCase):
                 'device': device.pk,
                 'module_bay': module_bays[3].pk,
                 'module_type': module_types[0].pk,
+                'status': ModuleStatusChoices.STATUS_ACTIVE,
                 'serial': 'ABC123',
                 'asset_tag': 'Foo1',
             },
@@ -1271,6 +1279,7 @@ class ModuleTest(APIViewTestCases.APIViewTestCase):
                 'device': device.pk,
                 'module_bay': module_bays[4].pk,
                 'module_type': module_types[1].pk,
+                'status': ModuleStatusChoices.STATUS_ACTIVE,
                 'serial': 'DEF456',
                 'asset_tag': 'Foo2',
             },
@@ -1278,6 +1287,7 @@ class ModuleTest(APIViewTestCases.APIViewTestCase):
                 'device': device.pk,
                 'module_bay': module_bays[5].pk,
                 'module_type': module_types[2].pk,
+                'status': ModuleStatusChoices.STATUS_ACTIVE,
                 'serial': 'GHI789',
                 'asset_tag': 'Foo3',
             },
@@ -1478,6 +1488,12 @@ class InterfaceTest(Mixins.ComponentTraceMixin, APIViewTestCases.APIViewTestCase
         )
         Interface.objects.bulk_create(interfaces)
 
+        vdcs = (
+            VirtualDeviceContext(name='VDC 1', identifier=1, device=device),
+            VirtualDeviceContext(name='VDC 2', identifier=2, device=device)
+        )
+        VirtualDeviceContext.objects.bulk_create(vdcs)
+
         vlans = (
             VLAN(name='VLAN 1', vid=1),
             VLAN(name='VLAN 2', vid=2),
@@ -1507,6 +1523,8 @@ class InterfaceTest(Mixins.ComponentTraceMixin, APIViewTestCases.APIViewTestCase
                 'speed': 1000000,
                 'duplex': 'full',
                 'vrf': vrfs[0].pk,
+                'poe_mode': InterfacePoEModeChoices.MODE_PD,
+                'poe_type': InterfacePoETypeChoices.TYPE_1_8023AF,
                 'tagged_vlans': [vlans[0].pk, vlans[1].pk],
                 'untagged_vlan': vlans[2].pk,
             },
@@ -1524,6 +1542,7 @@ class InterfaceTest(Mixins.ComponentTraceMixin, APIViewTestCases.APIViewTestCase
             },
             {
                 'device': device.pk,
+                'vdcs': [vdcs[0].pk],
                 'name': 'Interface 6',
                 'type': 'virtual',
                 'mode': InterfaceModeChoices.MODE_TAGGED,
@@ -1534,6 +1553,7 @@ class InterfaceTest(Mixins.ComponentTraceMixin, APIViewTestCases.APIViewTestCase
             },
             {
                 'device': device.pk,
+                'vdcs': [vdcs[1].pk],
                 'name': 'Interface 7',
                 'type': InterfaceTypeChoices.TYPE_80211A,
                 'tx_power': 10,
@@ -1542,6 +1562,7 @@ class InterfaceTest(Mixins.ComponentTraceMixin, APIViewTestCases.APIViewTestCase
             },
             {
                 'device': device.pk,
+                'vdcs': [vdcs[1].pk],
                 'name': 'Interface 8',
                 'type': InterfaceTypeChoices.TYPE_80211A,
                 'tx_power': 10,
@@ -1859,6 +1880,17 @@ class CableTest(APIViewTestCases.APIViewTestCase):
     # TODO: Allow updating cable terminations
     test_update_object = None
 
+    def model_to_dict(self, *args, **kwargs):
+        data = super().model_to_dict(*args, **kwargs)
+
+        # Serialize termination objects
+        if 'a_terminations' in data:
+            data['a_terminations'] = GenericObjectSerializer(data['a_terminations'], many=True).data
+        if 'b_terminations' in data:
+            data['b_terminations'] = GenericObjectSerializer(data['b_terminations'], many=True).data
+
+        return data
+
     @classmethod
     def setUpTestData(cls):
         site = Site.objects.create(name='Site 1', slug='site-1')
@@ -1879,33 +1911,45 @@ class CableTest(APIViewTestCases.APIViewTestCase):
         Interface.objects.bulk_create(interfaces)
 
         cables = (
-            Cable(termination_a=interfaces[0], termination_b=interfaces[10], label='Cable 1'),
-            Cable(termination_a=interfaces[1], termination_b=interfaces[11], label='Cable 2'),
-            Cable(termination_a=interfaces[2], termination_b=interfaces[12], label='Cable 3'),
+            Cable(a_terminations=[interfaces[0]], b_terminations=[interfaces[10]], label='Cable 1'),
+            Cable(a_terminations=[interfaces[1]], b_terminations=[interfaces[11]], label='Cable 2'),
+            Cable(a_terminations=[interfaces[2]], b_terminations=[interfaces[12]], label='Cable 3'),
         )
         for cable in cables:
             cable.save()
 
         cls.create_data = [
             {
-                'termination_a_type': 'dcim.interface',
-                'termination_a_id': interfaces[4].pk,
-                'termination_b_type': 'dcim.interface',
-                'termination_b_id': interfaces[14].pk,
+                'a_terminations': [{
+                    'object_type': 'dcim.interface',
+                    'object_id': interfaces[4].pk,
+                }],
+                'b_terminations': [{
+                    'object_type': 'dcim.interface',
+                    'object_id': interfaces[14].pk,
+                }],
                 'label': 'Cable 4',
             },
             {
-                'termination_a_type': 'dcim.interface',
-                'termination_a_id': interfaces[5].pk,
-                'termination_b_type': 'dcim.interface',
-                'termination_b_id': interfaces[15].pk,
+                'a_terminations': [{
+                    'object_type': 'dcim.interface',
+                    'object_id': interfaces[5].pk,
+                }],
+                'b_terminations': [{
+                    'object_type': 'dcim.interface',
+                    'object_id': interfaces[15].pk,
+                }],
                 'label': 'Cable 5',
             },
             {
-                'termination_a_type': 'dcim.interface',
-                'termination_a_id': interfaces[6].pk,
-                'termination_b_type': 'dcim.interface',
-                'termination_b_id': interfaces[16].pk,
+                'a_terminations': [{
+                    'object_type': 'dcim.interface',
+                    'object_id': interfaces[6].pk,
+                }],
+                'b_terminations': [{
+                    'object_type': 'dcim.interface',
+                    'object_id': interfaces[16].pk,
+                }],
                 'label': 'Cable 6',
             },
         ]
@@ -1913,37 +1957,37 @@ class CableTest(APIViewTestCases.APIViewTestCase):
 
 class ConnectedDeviceTest(APITestCase):
 
-    def setUp(self):
-
-        super().setUp()
-
+    @classmethod
+    def setUpTestData(cls):
         site = Site.objects.create(name='Site 1', slug='site-1')
         manufacturer = Manufacturer.objects.create(name='Manufacturer 1', slug='manufacturer-1')
         devicetype = DeviceType.objects.create(manufacturer=manufacturer, model='Device Type 1', slug='device-type-1')
         devicerole = DeviceRole.objects.create(name='Device Role 1', slug='device-role-1', color='ff0000')
-        self.device1 = Device.objects.create(
-            device_type=devicetype, device_role=devicerole, name='TestDevice1', site=site
+        devices = (
+            Device(device_type=devicetype, device_role=devicerole, name='TestDevice1', site=site),
+            Device(device_type=devicetype, device_role=devicerole, name='TestDevice2', site=site),
         )
-        self.device2 = Device.objects.create(
-            device_type=devicetype, device_role=devicerole, name='TestDevice2', site=site
+        Device.objects.bulk_create(devices)
+        interfaces = (
+            Interface(device=devices[0], name='eth0'),
+            Interface(device=devices[1], name='eth0'),
+            Interface(device=devices[0], name='eth1'),  # Not connected
         )
-        self.interface1 = Interface.objects.create(device=self.device1, name='eth0')
-        self.interface2 = Interface.objects.create(device=self.device2, name='eth0')
-        self.interface3 = Interface.objects.create(device=self.device1, name='eth1')  # Not connected
+        Interface.objects.bulk_create(interfaces)
 
-        cable = Cable(termination_a=self.interface1, termination_b=self.interface2)
+        cable = Cable(a_terminations=[interfaces[0]], b_terminations=[interfaces[1]])
         cable.save()
 
     @override_settings(EXEMPT_VIEW_PERMISSIONS=['*'])
     def test_get_connected_device(self):
         url = reverse('dcim-api:connected-device-list')
 
-        url_params = f'?peer_device={self.device1.name}&peer_interface={self.interface1.name}'
+        url_params = f'?peer_device=TestDevice1&peer_interface=eth0'
         response = self.client.get(url + url_params, **self.header)
         self.assertHttpStatus(response, status.HTTP_200_OK)
-        self.assertEqual(response.data['name'], self.device2.name)
+        self.assertEqual(response.data['name'], 'TestDevice2')
 
-        url_params = f'?peer_device={self.device1.name}&peer_interface={self.interface3.name}'
+        url_params = f'?peer_device=TestDevice1&peer_interface=eth1'
         response = self.client.get(url + url_params, **self.header)
         self.assertHttpStatus(response, status.HTTP_404_NOT_FOUND)
 
@@ -2025,6 +2069,7 @@ class VirtualChassisTest(APIViewTestCases.APIViewTestCase):
 
         cls.bulk_update_data = {
             'domain': 'newdomain',
+            'master': None
         }
 
 
@@ -2128,5 +2173,59 @@ class PowerFeedTest(APIViewTestCases.APIViewTestCase):
                 'power_panel': power_panels[1].pk,
                 'rack': racks[3].pk,
                 'type': REDUNDANT,
+            },
+        ]
+
+
+class VirtualDeviceContextTest(APIViewTestCases.APIViewTestCase):
+    model = VirtualDeviceContext
+    brief_fields = ['device', 'display', 'id', 'identifier', 'name', 'url']
+    bulk_update_data = {
+        'status': 'planned',
+    }
+
+    @classmethod
+    def setUpTestData(cls):
+        site = Site.objects.create(name='Test Site', slug='test-site')
+        manufacturer = Manufacturer.objects.create(name='Manufacturer 1', slug='manufacturer-1')
+        devicetype = DeviceType.objects.create(manufacturer=manufacturer, model='Device Type', slug='device-type')
+        devicerole = DeviceRole.objects.create(name='Device Role', slug='device-role', color='ff0000')
+
+        devices = (
+            Device(name='Device 1', device_type=devicetype, device_role=devicerole, site=site),
+            Device(name='Device 2', device_type=devicetype, device_role=devicerole, site=site),
+            Device(name='Device 3', device_type=devicetype, device_role=devicerole, site=site),
+        )
+        Device.objects.bulk_create(devices)
+
+        vdcs = (
+            VirtualDeviceContext(device=devices[1], name='VDC 1', identifier=1, status='active'),
+            VirtualDeviceContext(device=devices[1], name='VDC 2', identifier=2, status='active'),
+            VirtualDeviceContext(device=devices[2], name='VDC 1', identifier=1, status='active'),
+            VirtualDeviceContext(device=devices[2], name='VDC 2', identifier=2, status='active'),
+            VirtualDeviceContext(device=devices[2], name='VDC 3', identifier=3, status='active'),
+            VirtualDeviceContext(device=devices[2], name='VDC 4', identifier=4, status='active'),
+            VirtualDeviceContext(device=devices[2], name='VDC 5', identifier=5, status='active'),
+        )
+        VirtualDeviceContext.objects.bulk_create(vdcs)
+
+        cls.create_data = [
+            {
+                'device': devices[0].pk,
+                'status': 'active',
+                'name': 'VDC 1',
+                'identifier': 1,
+            },
+            {
+                'device': devices[0].pk,
+                'status': 'active',
+                'name': 'VDC 2',
+                'identifier': 2,
+            },
+            {
+                'device': devices[1].pk,
+                'status': 'active',
+                'name': 'VDC 3',
+                'identifier': 3,
             },
         ]
