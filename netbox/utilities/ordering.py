@@ -52,7 +52,7 @@ def naturalize_interface(value, max_length, integer_places=5, model_instance=Non
     interface_remainder_len = 10
     interface_type_sort_length = 4
 
-    interface_type_weight_list = {                        # First matched expression is used. The order and the assigned weith can be out of order to accomodate correct sortimg
+    interface_type_weight_list = {                        # First matched expression is used. The order and the assigned weight can be out of order to accomodate correct sortimg
         r'^([fgstx]e|et|lt|st)-': 5,                      # Group Juniper interfaces  (https://www.juniper.net/documentation/us/en/software/junos/interfaces-fundamentals/topics/topic-map/router-interfaces-overview.html). Other Juniper interfaces will come after these and sorted alphabetically
         r'^(embed|eth|fa|gi|ten|hun)[^\d]*\d*': 10,       # Group Cisco/Arista Interfaces (order is a combination of weight+nbr_of_separators, so next weight must be 20)
         r'^[^a-z]*$': 30,                                 # Group Only digits
