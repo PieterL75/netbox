@@ -105,7 +105,7 @@ class SearchView(View):
             return render(request, 'htmx/table.html', {
                 'table': table,
             })
-        
+
         return render(request, 'search.html', {
             'form': form,
             'table': table,
