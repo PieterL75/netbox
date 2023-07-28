@@ -96,11 +96,16 @@ class SearchView(View):
         }).configure(table)
 
         # If this is an HTMX request, return only the rendered table HTML
+        if form.cleaned_data['qs'] or False:
+            return render(request, 'htmx/qs.html', {
+                'table': table,
+            })
+
         if is_htmx(request):
             return render(request, 'htmx/table.html', {
                 'table': table,
             })
-
+        
         return render(request, 'search.html', {
             'form': form,
             'table': table,
