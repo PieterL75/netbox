@@ -453,7 +453,8 @@ class Platform(NestedGroupModel):
     )
 
     def get_interfacesorting_function(self):
-        sortfunction_keys = [sortfunction_dict for sortfunction_dict in InterfaceNaturalizationFunctionChoices.CHOICES]
+        sortfunction_keys = [sortfunction_dict[0]
+                             for sortfunction_dict in InterfaceNaturalizationFunctionChoices.CHOICES]
         if self.interface_sorting not in sortfunction_keys:
             raise ValueError(f"Invalid interface sorting function {self.interface_sorting}")
         sortfunction = [sortfunction_dict for sortfunction_dict in InterfaceNaturalizationFunctionChoices.CHOICES
