@@ -1988,6 +1988,7 @@ class InventoryItemStatusChoices(ChoiceSet):
 
 class InterfaceNaturalizationFunctionChoices(ChoiceSet):
     key = 'Platform.interfacesorting'
+    replaceable = False
 
     from utilities import ordering
     INF_NB_INTERFACE = 'default'
@@ -2002,7 +2003,7 @@ class InterfaceNaturalizationFunctionChoices(ChoiceSet):
 
     # Extend with a plugin or in configuration.py
     # FIELD_CHOICES = {
-    #     'dcim.Platform.interfacesorting': (
+    #     'dcim.Platform.interfacesorting+': (
     #         ('naturalsort' , 'Natural Interface Sorting', netbox_plugin.ordering.naturalsort),
     #     )
     # }

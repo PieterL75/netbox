@@ -24,11 +24,19 @@ class ChoiceSetMeta(type):
             ).format(name=name)
             app = attrs['__module__'].split('.', 1)[0]
             replace_key = f'{app}.{key}'
+            replaceable = attrs.get('replaceable', True)
             extend_key = f'{replace_key}+' if replace_key else None
+            extendable = attrs.get('extendable', True)
             if replace_key and replace_key in settings.FIELD_CHOICES:
+                if not replaceable:
+                    raise ValueError(f"The CHOICES key '{replace_key}' cannot replaced "
+                                     "by FIELD_CHOICES in configuration.py.")
                 # Replace the stock choices
                 attrs['CHOICES'] = settings.FIELD_CHOICES[replace_key]
             elif extend_key and extend_key in settings.FIELD_CHOICES:
+                if not extendable:
+                    raise ValueError(f"The CHOICES key '{replace_key}' cannot be extended "
+                                     "by FIELD_CHOICES in configuration.py.")
                 # Extend the stock choices
                 attrs['CHOICES'].extend(settings.FIELD_CHOICES[extend_key])
 
