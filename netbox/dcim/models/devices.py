@@ -438,6 +438,12 @@ class Platform(NestedGroupModel):
         null=True,
         help_text=_('Optionally limit this platform to devices of a certain manufacturer')
     )
+    interface_sorting = models.CharField(
+        choices=InterfaceNaturalizationFunctionChoices,
+        blank=False,
+        default=InterfaceNaturalizationFunctionChoices.INF_NB_INTERFACE,
+        max_length=100,
+    )
     config_template = models.ForeignKey(
         to='extras.ConfigTemplate',
         on_delete=models.PROTECT,
@@ -446,7 +452,24 @@ class Platform(NestedGroupModel):
         null=True
     )
 
-    clone_fields = ('parent', 'description')
+    def get_interfacesorting_function(self):
+        sortfunction_keys = [sortfunction_dict for sortfunction_dict in InterfaceNaturalizationFunctionChoices.CHOICES]
+        if not ('default' in sortfunction_keys and 'alphanumeric' in sortfunction_keys):
+            raise ValueError("The build-in sorting function cannot be removed. "
+                             "If an extra function is added using the FIELD_CHOICES, then make sure to use "
+                             "'dcim.Platform.interfacesorting+' (with a plus at the end) to add the function "
+                             "to the build-in ones")
+        if self.interface_sorting not in sortfunction_keys:
+            raise ValueError(f"Invalid interface sorting function {self.interface_sorting}")
+        sortfunction = [sortfunction_dict for sortfunction_dict in InterfaceNaturalizationFunctionChoices.CHOICES
+                        if sortfunction_dict[0] == self.interface_sorting]
+        if not sortfunction:
+            raise ValueError(f"Invalid interface sorting function {self.interface_sorting}")
+        if not callable(sortfunction[0][2]):
+            raise ValueError(f"Interface sorting function {self.interface_sorting} is not callable")
+        return sortfunction[0][2]
+
+    clone_fields = ('parent', 'description', 'interface_sorting')
 
     class Meta:
         ordering = ('name',)

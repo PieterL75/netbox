@@ -42,6 +42,10 @@
           <td>{{ object.manufacturer|linkify|placeholder }}</td>
         </tr>
         <tr>
+          <th scope="row">{% trans "Interface Sorting" %}</th>
+          <td>{{ object.get_interface_sorting_display }}</td>
+        </tr>
+        <tr>
           <th scope="row">{% trans "Config Template" %}</th>
           <td>{{ object.config_template|linkify|placeholder }}</td>
         </tr>

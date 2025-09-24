@@ -1024,6 +1024,10 @@ class PlatformFilterSet(OrganizationalModelFilterSet):
         queryset=DeviceType.objects.all(),
         method='get_for_device_type'
     )
+    interface_sorting = django_filters.MultipleChoiceFilter(
+        choices=InterfaceNaturalizationFunctionChoices,
+        null_value=None,
+    )
     config_template_id = django_filters.ModelMultipleChoiceFilter(
         queryset=ConfigTemplate.objects.all(),
         label=_('Config template (ID)'),

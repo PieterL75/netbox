@@ -1984,3 +1984,25 @@ class InventoryItemStatusChoices(ChoiceSet):
         (STATUS_FAILED, _('Failed'), 'red'),
         (STATUS_DECOMMISSIONING, _('Decommissioning'), 'yellow'),
     ]
+
+
+class InterfaceNaturalizationFunctionChoices(ChoiceSet):
+    key = 'Platform.interfacesorting'
+
+    from utilities import ordering
+    INF_NB_INTERFACE = 'default'
+    INF_NB_NATURAL = 'alphanumeric'
+    INF_NB_NUMERIC = 'numeric'
+
+    CHOICES = [
+        (INF_NB_INTERFACE, _('Default'), ordering.naturalize_interface_default),
+        (INF_NB_NATURAL, _('Alphanumeric'), ordering.naturalize),
+        (INF_NB_NUMERIC, _('Numeric'), ordering.naturalize_numeric),
+    ]
+
+    # Extend with a plugin or in configuration.py
+    # FIELD_CHOICES = {
+    #     'dcim.Platform.interfacesorting': (
+    #         ('naturalsort' , 'Natural Interface Sorting', netbox_plugin.ordering.naturalsort),
+    #     )
+    # }

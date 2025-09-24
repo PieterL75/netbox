@@ -729,6 +729,11 @@ class PlatformFilterForm(NetBoxModelFilterSetForm):
         required=False,
         label=_('Manufacturer')
     )
+    interface_sorting = forms.MultipleChoiceField(
+        choices=InterfaceNaturalizationFunctionChoices,
+        required=False,
+        label=_('Interface sorting')
+    )
     config_template_id = DynamicModelMultipleChoiceField(
         queryset=ConfigTemplate.objects.all(),
         required=False,

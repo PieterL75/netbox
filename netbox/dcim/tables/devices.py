@@ -115,6 +115,9 @@ class PlatformTable(NetBoxTable):
         verbose_name=_('Manufacturer'),
         linkify=True
     )
+    interface_sorting = tables.Column(
+        verbose_name=_('Interface sorting')
+    )
     config_template = tables.Column(
         verbose_name=_('Config Template'),
         linkify=True
@@ -136,8 +139,8 @@ class PlatformTable(NetBoxTable):
     class Meta(NetBoxTable.Meta):
         model = models.Platform
         fields = (
-            'pk', 'id', 'name', 'parent', 'manufacturer', 'device_count', 'vm_count', 'slug', 'config_template',
-            'description', 'tags', 'actions', 'created', 'last_updated',
+            'pk', 'id', 'name', 'parent', 'manufacturer', 'device_count', 'vm_count', 'slug', 'interface_sorting',
+            'config_template', 'description', 'tags', 'actions', 'created', 'last_updated',
         )
         default_columns = (
             'pk', 'name', 'manufacturer', 'device_count', 'vm_count', 'description',

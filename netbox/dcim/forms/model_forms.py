@@ -547,6 +547,11 @@ class PlatformForm(NetBoxModelForm):
         required=False,
         quick_add=True
     )
+    interface_sorting = forms.ChoiceField(
+        label=_('Interface sorting'),
+        choices=InterfaceNaturalizationFunctionChoices,
+        required=True
+    )
     config_template = DynamicModelChoiceField(
         label=_('Config template'),
         queryset=ConfigTemplate.objects.all(),
@@ -560,14 +565,16 @@ class PlatformForm(NetBoxModelForm):
 
     fieldsets = (
         FieldSet(
-            'name', 'slug', 'parent', 'manufacturer', 'config_template', 'description', 'tags', name=_('Platform'),
+            'name', 'slug', 'parent', 'manufacturer', 'interface_sorting', 'config_template',
+            'description', 'tags', name=_('Platform'),
         ),
     )
 
     class Meta:
         model = Platform
         fields = [
-            'name', 'slug', 'parent', 'manufacturer', 'config_template', 'description', 'comments', 'tags',
+            'name', 'slug', 'parent', 'manufacturer', 'interface_sorting', 'config_template',
+            'description', 'comments', 'tags',
         ]
 
 

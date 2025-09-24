@@ -7,7 +7,7 @@ from dcim.choices import CableEndChoices, LinkStatusChoices
 from .models import (
     Cable, CablePath, CableTermination, ConsolePort, ConsoleServerPort, Device, DeviceBay, FrontPort, Interface,
     InventoryItem, ModuleBay, PathEndpoint, PowerOutlet, PowerPanel, PowerPort, Rack, RearPort, Location,
-    VirtualChassis,
+    VirtualChassis, Platform
 )
 from .models.cables import trace_paths
 from .utils import create_cablepath, rebuild_paths
@@ -170,3 +170,12 @@ def extend_rearport_cable_paths(instance, created, raw, **kwargs):
         rearport = instance.rear_port
         for cablepath in CablePath.objects.filter(_nodes__contains=rearport):
             cablepath.retrace()
+
+
+@receiver(post_save, sender=Platform)
+def handle_platform_interfacesort_change(instance, created, **kwargs):
+    """
+    Update interface ordering _name field when the Sorting algoritm changes on the Platform.
+    """
+    # TODO: Rerun the interface naturalication for all devices that have this and the original platform.
+    print("todo")

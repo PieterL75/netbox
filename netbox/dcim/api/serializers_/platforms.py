@@ -23,9 +23,9 @@ class PlatformSerializer(NestedGroupModelSerializer):
     class Meta:
         model = Platform
         fields = [
-            'id', 'url', 'display_url', 'display', 'parent', 'name', 'slug', 'manufacturer', 'config_template',
-            'description', 'comments', 'tags', 'custom_fields', 'created', 'last_updated', 'device_count',
-            'virtualmachine_count', '_depth',
+            'id', 'url', 'display_url', 'display', 'parent', 'name', 'slug', 'manufacturer', 'interface_sorting',
+            'config_template', 'description', 'comments', 'tags', 'custom_fields', 'created', 'last_updated',
+            'device_count', 'virtualmachine_count', '_depth',
         ]
         brief_fields = (
             'id', 'url', 'display', 'name', 'slug', 'description', 'device_count', 'virtualmachine_count', '_depth',
